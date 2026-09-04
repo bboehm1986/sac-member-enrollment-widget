@@ -1,0 +1,69 @@
+{
+    "id": "com.porticobenefits.memberenrollment",
+    "name": "AE Member Enrollment",
+    "version": "1.0.0",
+    "vendor": "Portico Benefits",
+    "license": "",
+    "eula": "",
+    "description": "Daily high-level dashboard of Annual Enrollment progress by Member: Wave-level Set Up/Completed counts, Enrollment Status breakdown, Defaulted (Before/After PSP), multiple-attempts count, and a daily Completed/Abandoned timeline.",
+    "newInstancePrefix": "MemberEnrollment",
+    "icon": "https://bboehm1986.github.io/sac-member-enrollment-widget/icon.svg",
+    "webcomponents": [
+        {
+            "kind": "main",
+            "tag": "com-porticobenefits-memberenrollment",
+            "url": "https://bboehm1986.github.io/sac-member-enrollment-widget/main.js",
+            "integrity": "sha384-7Trtx/fTAkQlL3fdYMv8RedDDmNlpoe4rdRhOAda3kSmmB5Hazv1wNFYTSU97iE7"
+        }
+    ],
+    "properties": {
+        "width": {
+            "type": "integer",
+            "default": 900
+        },
+        "height": {
+            "type": "integer",
+            "default": 650
+        },
+        "asOfLabel": {
+            "type": "string",
+            "default": "Live"
+        }
+    },
+    "dataBindings": {
+        "enrollmentSummary": {
+            "feeds": [
+                {
+                    "id": "dimensions",
+                    "description": "Wave / Enrollment Status / Defaulted / Defaulted Timing",
+                    "type": "dimension"
+                },
+                {
+                    "id": "measures",
+                    "description": "Member Count, Multiple-Attempts Member Count",
+                    "type": "mainStructureMember"
+                }
+            ]
+        },
+        "dailyTrend": {
+            "feeds": [
+                {
+                    "id": "dimensions",
+                    "description": "Date / Wave / Enrollment Status",
+                    "type": "dimension"
+                },
+                {
+                    "id": "measures",
+                    "description": "Member Count",
+                    "type": "mainStructureMember"
+                }
+            ]
+        }
+    },
+    "methods": {
+        "refresh": {
+            "description": "Re-renders the dashboard from the currently bound data"
+        }
+    },
+    "events": {}
+}
