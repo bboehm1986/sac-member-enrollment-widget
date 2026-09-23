@@ -1,13 +1,22 @@
 /*
     AE Member Enrollment — SAC Custom Widget
 
-    Renders the Member Enrollment dashboard: Wave-level Set Up/Completed
-    counts, overall Enrollment Status breakdown, Defaulted (Before/After
-    PSP), a multiple-attempts count, and a daily Completed/Abandoned
-    timeline. See ../ae-member-enrollment-report/GOLD_VIEW_SPEC.md for the
-    full design (field definitions, business rules, reference calendar) and
-    ../ae-member-enrollment-report/BUILD_PLAN_FOR_AHMED.md for how the two
-    data bindings below get built.
+    This is the "Snap" (executive/leadership) widget of a 3-widget suite —
+    see GOLD_VIEW_SPEC.md §10l — mirroring sac-ae-snap-report-widget's role
+    on the Employer side. The fuller Enrollment-Status-per-Wave breakdown,
+    election-detail metrics, and waiver trend live on the sibling
+    sac-member-operational-widget instead; per-member row detail lives on
+    sac-member-detail-widget. This widget renders: Wave-level Set Up/
+    Completed counts, a headline Enrollment Status breakdown ("Abandoned"
+    displayed as "Started, Not Completed" — a pure display relabel, same
+    underlying data), Defaulted broken out by Wave 1/Wave 2a (the only two
+    waves with a PSP step), a multiple-attempts count, and a combined
+    bar+cumulative-line daily timeline (Employer-suite style — independent
+    scales for the bars vs. the cumulative line, a shared scale would
+    flatten the bars). See ../ae-member-enrollment-report/GOLD_VIEW_SPEC.md
+    for the full design (field definitions, business rules, reference
+    calendar) and ../ae-member-enrollment-report/BUILD_PLAN_FOR_AHMED.md
+    for how the two data bindings below get built.
 
     This widget binds to two PRE-AGGREGATED cubes, never to Gold-layer
     member-level rows directly (Gold is one row per Member, individual-level
@@ -198,9 +207,28 @@
             .wave-card .wave-pct { font-size: 11px; color: var(--text-soft); }
 
             .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow-card); }
+            .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+            .panel-caption { font-size: 12px; color: var(--text-soft); margin: -6px 0 8px; }
 
-            .chart-legend { display: flex; gap: 16px; margin-bottom: 8px; font-size: 11.5px; color: var(--text-soft); }
-            .chart-legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+            /* Combo timeline — matches sac-ae-operational-widget's "Daily
+               Completion Tracker" convention: header + stat row + legend +
+               chart, bars and cumulative line on independent scales (a
+               shared scale would flatten the bars). */
+            .cum-tracker-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+            .cum-tracker-title { font-size: 13px; font-weight: 700; color: var(--text); }
+            .cum-tracker-row { display: flex; gap: 22px; margin-bottom: 12px; flex-wrap: wrap; }
+            .cum-stat-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+            .cum-stat-label { font-size: 10.5px; color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.04em; }
+            .badge.success { color: var(--success); border-color: rgba(20,151,111,.35); background: var(--success-bg); }
+            .badge.lg { font-size: 12px; font-weight: 700; padding: 5px 14px; }
+
+            .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 11px; color: var(--text-soft); flex-wrap: wrap; }
+            .chart-legend-item { display: flex; align-items: center; gap: 6px; }
+            .chart-legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+            .chart-legend-swatch.line { width: 14px; height: 2px; border-radius: 1px; }
+            .chart-wrap { margin-top: 2px; }
+            .chart-svg { width: 100%; height: 170px; display: block; }
+            .chart-axis-label { font-size: 9px; fill: var(--text-soft); }
             .chart-grid-line { stroke: rgba(23,26,35,0.08); stroke-width: 1; }
             .chart-bar-label { font-size: 8.5px; fill: var(--text-soft); }
             .chart-bar.completed { fill: var(--success); }
@@ -227,17 +255,11 @@
             <div class="section-title">Enrollment Status (all waves)</div>
             <div class="grid" id="statusTiles"></div>
 
-            <div class="section-title">Defaulted</div>
-            <div class="grid" id="defaultedTiles"></div>
+            <div class="section-title">Defaulted — by Wave</div>
+            <div class="panels" id="defaultedPanels"></div>
 
-            <div class="section-title">Timeline — Completed vs. Abandoned</div>
-            <div class="panel">
-                <div class="chart-legend">
-                    <span><span class="dot" style="background:var(--success);"></span>Completed</span>
-                    <span><span class="dot" style="background:var(--danger);"></span>Abandoned</span>
-                </div>
-                <svg id="timelineChart" width="100%" height="140" viewBox="0 0 700 140" preserveAspectRatio="none"></svg>
-            </div>
+            <div class="section-title">Timeline</div>
+            <div class="panel" id="timelinePanel"></div>
 
             <div class="notice" id="notice"></div>
         </div>
@@ -296,6 +318,10 @@
             WAVES.forEach((w) => { byWave[w] = { setUp: 0, completed: 0 }; });
             const byStatus = {};
             STATUSES.forEach((s) => { byStatus[s] = 0; });
+            // Only Wave 1 / Wave 2a ever have a PSP step (see GOLD_VIEW_SPEC.md
+            // §5) — Defaulted_Timing is only ever "Before PSP"/"After PSP" for
+            // these two waves, "N/A" for 2b/3.
+            const defaultedByWave = { "Wave 1": { before: 0, after: 0 }, "Wave 2a": { before: 0, after: 0 } };
             let totalSetUp = 0, multipleAttempts = 0;
             let defaultedBeforePsp = 0, defaultedAfterPsp = 0;
 
@@ -315,9 +341,13 @@
                 }
                 if (timing === "Before PSP") defaultedBeforePsp += count;
                 else if (timing === "After PSP") defaultedAfterPsp += count;
+                if (defaultedByWave[wave]) {
+                    if (timing === "Before PSP") defaultedByWave[wave].before += count;
+                    else if (timing === "After PSP") defaultedByWave[wave].after += count;
+                }
             });
 
-            return { byWave, byStatus, totalSetUp, multipleAttempts, defaultedBeforePsp, defaultedAfterPsp };
+            return { byWave, byStatus, totalSetUp, multipleAttempts, defaultedBeforePsp, defaultedAfterPsp, defaultedByWave };
         }
 
         _parseDailyTrend() {
@@ -351,7 +381,10 @@
             const summary = this._parseSummary();
             const daily = this._parseDailyTrend();
 
-            root.getElementById("asof").textContent = "As of: " + (this._props.asOfLabel || "Live");
+            // Computed from the viewer's clock, not the (unreliable) bound
+            // asOfLabel property — see sac-ae-operational-widget's own fix
+            // for the same bug, applied here from the start.
+            root.getElementById("asof").textContent = "As of: " + new Date().toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
             root.getElementById("dataBadge").textContent = this._usingMockData ? "Mock Data — Preview" : "Live";
 
             // Wave breakdown cards
@@ -368,62 +401,127 @@
                     </div>`;
             }).join("");
 
-            // Enrollment Status tiles
+            // Enrollment Status tiles. "Abandoned" displays as "Started, Not
+            // Completed" — a pure display relabel, per Blair (2026-09-21):
+            // same ResultCode='A' population and same underlying data key,
+            // only the rendered label changes.
             const completedPct = summary.totalSetUp ? Math.round((summary.byStatus["Success"] / summary.totalSetUp) * 100) : 0;
-            const abandonedPct = summary.totalSetUp ? Math.round((summary.byStatus["Abandoned"] / summary.totalSetUp) * 100) : 0;
+            const startedNotCompletedPct = summary.totalSetUp ? Math.round((summary.byStatus["Abandoned"] / summary.totalSetUp) * 100) : 0;
             const notStartedPct = summary.totalSetUp ? Math.round((summary.byStatus["Not Started"] / summary.totalSetUp) * 100) : 0;
             root.getElementById("statusTiles").innerHTML = [
                 this._tileHtml("Total Set Up", summary.totalSetUp, "all waves", 100, "accent"),
                 this._tileHtml("Completed", summary.byStatus["Success"], completedPct + "% of total", completedPct, "success"),
-                this._tileHtml("Abandoned", summary.byStatus["Abandoned"], abandonedPct + "% of total", abandonedPct, "danger"),
+                this._tileHtml("Started, Not Completed", summary.byStatus["Abandoned"], startedNotCompletedPct + "% of total", startedNotCompletedPct, "danger"),
                 this._tileHtml("Not Started", summary.byStatus["Not Started"], notStartedPct + "% of total", notStartedPct, "warning"),
                 this._tileHtml("Multiple Attempts", summary.multipleAttempts, "members, 2+ attempts", summary.totalSetUp ? (summary.multipleAttempts / summary.totalSetUp) * 100 : 0, "info"),
             ].join("");
 
-            // Defaulted tiles
-            root.getElementById("defaultedTiles").innerHTML = [
-                this._tileHtml("Defaulted — Before PSP", summary.defaultedBeforePsp, "Wave 1 / 2a only", summary.totalSetUp ? (summary.defaultedBeforePsp / summary.totalSetUp) * 100 : 0, "warning"),
-                this._tileHtml("Defaulted — After PSP", summary.defaultedAfterPsp, "Wave 1 / 2a only", summary.totalSetUp ? (summary.defaultedAfterPsp / summary.totalSetUp) * 100 : 0, "danger"),
-            ].join("");
+            // Defaulted panels, broken out by Wave 1 / Wave 2a — the only two
+            // waves with a PSP step (2b/3 have no Before/After PSP split).
+            root.getElementById("defaultedPanels").innerHTML = ["Wave 1", "Wave 2a"].map((w) => {
+                const d = summary.defaultedByWave[w];
+                const waveTotal = summary.byWave[w].setUp;
+                return `
+                    <div class="panel">
+                        <div class="section-title" style="margin-top:0;">${w}</div>
+                        <div class="panel-caption" style="margin-top:-4px;">Defaulted members</div>
+                        <div class="grid">
+                            ${this._tileHtml("Before PSP", d.before, "of " + waveTotal + " set up", waveTotal ? (d.before / waveTotal) * 100 : 0, "warning")}
+                            ${this._tileHtml("After PSP", d.after, "of " + waveTotal + " set up", waveTotal ? (d.after / waveTotal) * 100 : 0, "danger")}
+                        </div>
+                    </div>`;
+            }).join("");
 
             // Timeline
-            this._renderTimeline(root.getElementById("timelineChart"), daily);
+            this._renderTimeline(root.getElementById("timelinePanel"), daily, summary);
 
             root.getElementById("notice").textContent =
-                "⚠ Open items: Wave assignment is still Yong Yang's view (not yet built), and " +
-                "\"Total Not Started By Day\" isn't yet defined (snapshot vs. cohort trend) — " +
-                "see GOLD_VIEW_SPEC.md §7 in ae-member-enrollment-report/.";
+                "⚠ Open items: \"Total Not Started By Day\" isn't a tracked field — it's " +
+                "inferred as Total Set Up minus cumulative Completed, and the Wave/Defaulted " +
+                "join against AE_EventRqsts/vDimMember hasn't been deployed to this cube yet — " +
+                "see GOLD_VIEW_SPEC.md §7/§8/§10k in ae-member-enrollment-report/.";
         }
 
-        _renderTimeline(svg, daily) {
-            const W = 700, H = 140, padBottom = 20, padTop = 8;
-            const max = Math.max(1, ...daily.map((d) => Math.max(d.completed, d.abandoned)));
-            const groupW = daily.length ? W / daily.length : 0;
+        // Daily Completion Tracker — header/stat-row/legend/chart, matching
+        // sac-ae-operational-widget's convention. Keeps both bar series
+        // (Completed / Started-Not-Completed) since that per-day contrast is
+        // meaningful for Member Enrollment, unlike the Employer widget's
+        // single-series original — but adds the same cumulative-line overlay
+        // on an independent scale (a shared scale would flatten the bars).
+        _renderTimeline(container, daily, summary) {
+            let cum = 0;
+            daily.forEach((d) => { cum += d.completed; });
+            const totalCompleted = cum;
+            const pctOfSetUp = summary.totalSetUp ? Math.round((totalCompleted / summary.totalSetUp) * 100) : 0;
+
+            container.innerHTML = `
+                <div class="cum-tracker-header">
+                    <div class="cum-tracker-title">Daily Completion Tracker</div>
+                </div>
+                <div class="cum-tracker-row">
+                    <div><div class="cum-stat-value">${totalCompleted.toLocaleString()}</div><div class="cum-stat-label">Cumulative Completed</div></div>
+                    <div><div class="cum-stat-value">${pctOfSetUp}%</div><div class="cum-stat-label">of Total Set Up</div></div>
+                </div>
+                <div class="chart-legend">
+                    <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--success);"></span>Completed</div>
+                    <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--danger);"></span>Started, Not Completed</div>
+                    <div class="chart-legend-item"><span class="chart-legend-swatch line" style="background:var(--accent);"></span>Cumulative Completed</div>
+                </div>
+                <div class="chart-wrap">${this._svgComboChart(daily)}</div>
+            `;
+        }
+
+        _svgComboChart(daily) {
+            const width = 700, height = 170, padL = 34, padR = 34, padT = 14, padB = 22;
+            const innerW = width - padL - padR, innerH = height - padT - padB;
+            const n = daily.length;
+            if (!n) {
+                return `<svg viewBox="0 0 ${width} ${height}" class="chart-svg"><text x="10" y="20" class="chart-bar-label">No timeline data bound yet</text></svg>`;
+            }
+
+            const barMax = Math.max(1, ...daily.map((d) => Math.max(d.completed, d.abandoned)));
+            let cum = 0;
+            const cumPoints = daily.map((d) => (cum += d.completed));
+            const cumMax = Math.max(1, ...cumPoints);
+
+            const groupW = innerW / n;
             const barW = groupW * 0.32;
             const gap = groupW * 0.12;
 
             let grid = "";
             [0.25, 0.5, 0.75].forEach((f) => {
-                const y = padTop + (H - padTop - padBottom) * (1 - f);
-                grid += `<line class="chart-grid-line" x1="0" y1="${y}" x2="${W}" y2="${y}"></line>`;
+                const y = padT + innerH * (1 - f);
+                grid += `<line class="chart-grid-line" x1="${padL}" y1="${y.toFixed(1)}" x2="${width - padR}" y2="${y.toFixed(1)}"></line>`;
             });
 
-            let bars = "";
+            let bars = "", dayLabels = "";
             daily.forEach((d, i) => {
-                const groupX = i * groupW;
-                const cH = ((H - padTop - padBottom) * d.completed) / max;
-                const aH = ((H - padTop - padBottom) * d.abandoned) / max;
+                const groupX = padL + i * groupW;
+                const cH = (innerH * d.completed) / barMax;
+                const aH = (innerH * d.abandoned) / barMax;
                 const cX = groupX + gap;
                 const aX = cX + barW + 2;
-                bars += `<rect class="chart-bar completed" x="${cX}" y="${H - padBottom - cH}" width="${barW}" height="${cH}" rx="1"></rect>`;
-                bars += `<rect class="chart-bar abandoned" x="${aX}" y="${H - padBottom - aH}" width="${barW}" height="${aH}" rx="1"></rect>`;
-                const dayLabel = d.date.slice(5);
-                bars += `<text class="chart-bar-label" x="${groupX + groupW / 2}" y="${H - 6}" text-anchor="middle">${dayLabel}</text>`;
+                bars += `<rect class="chart-bar completed" x="${cX.toFixed(1)}" y="${(padT + innerH - cH).toFixed(1)}" width="${barW.toFixed(1)}" height="${cH.toFixed(1)}" rx="1"><title>${d.date}: ${d.completed} completed</title></rect>`;
+                bars += `<rect class="chart-bar abandoned" x="${aX.toFixed(1)}" y="${(padT + innerH - aH).toFixed(1)}" width="${barW.toFixed(1)}" height="${aH.toFixed(1)}" rx="1"><title>${d.date}: ${d.abandoned} started, not completed</title></rect>`;
+                dayLabels += `<text class="chart-bar-label" x="${(groupX + groupW / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${d.date.slice(5)}</text>`;
             });
 
-            svg.innerHTML = daily.length
-                ? (grid + bars)
-                : `<text x="10" y="20" class="chart-bar-label">No timeline data bound yet</text>`;
+            const stepX = n > 1 ? innerW / (n - 1) : 0;
+            const coords = cumPoints.map((v, i) => [padL + i * stepX, padT + innerH - (v / cumMax) * innerH]);
+            const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+            const dots = coords.map(([x, y], i) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--accent)"><title>${daily[i].date}: ${cumPoints[i]} cumulative completed</title></circle>`).join("");
+
+            const axisLabels = `
+                <text class="chart-axis-label" x="${(padL - 6).toFixed(1)}" y="${(padT + 4).toFixed(1)}" text-anchor="end">${barMax}</text>
+                <text class="chart-axis-label" x="${(padL - 6).toFixed(1)}" y="${(padT + innerH).toFixed(1)}" text-anchor="end">0</text>
+                <text class="chart-axis-label" x="${(width - padR + 6).toFixed(1)}" y="${(padT + 4).toFixed(1)}" text-anchor="start">${cumMax}</text>
+                <text class="chart-axis-label" x="${(width - padR + 6).toFixed(1)}" y="${(padT + innerH).toFixed(1)}" text-anchor="start">0</text>`;
+
+            return `<svg viewBox="0 0 ${width} ${height}" class="chart-svg" role="img" aria-label="Daily and cumulative completions">
+                ${grid}${bars}
+                <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2"></path>
+                ${dots}${dayLabels}${axisLabels}
+            </svg>`;
         }
     }
 
