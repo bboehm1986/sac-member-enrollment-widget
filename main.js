@@ -405,7 +405,20 @@
                 if (status === "Success") byDate[date].completed += count;
                 else if (status === "Abandoned") byDate[date].abandoned += count;
             });
-            return Object.keys(byDate).sort().map((date) => ({ date, ...byDate[date] }));
+            // Sort by actual parsed date, not the raw string -- SAC returns
+            // dimension labels like "Aug 31, 2026", not the ISO "2026-08-31"
+            // the mock data uses, and a plain string sort on month-name dates
+            // silently breaks (e.g. "Dec" < "Oct" alphabetically).
+            return Object.keys(byDate)
+                .map((date) => ({ date, sortKey: new Date(date).getTime(), ...byDate[date] }))
+                .sort((a, b) => a.sortKey - b.sortKey);
+        }
+        // Formats a bound date string (ISO from mock data, or a locale label
+        // like "Aug 31, 2026" from real SAC data) into a compact axis label.
+        _shortDateLabel(dateStr) {
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return dateStr;
+            return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
         }
 
         // ---- Small render helpers ----
@@ -547,7 +560,7 @@
                 const aX = cX + barW + 2;
                 bars += `<rect class="chart-bar completed" x="${cX.toFixed(1)}" y="${(padT + innerH - cH).toFixed(1)}" width="${barW.toFixed(1)}" height="${cH.toFixed(1)}" rx="1"><title>${d.date}: ${d.completed} completed</title></rect>`;
                 bars += `<rect class="chart-bar abandoned" x="${aX.toFixed(1)}" y="${(padT + innerH - aH).toFixed(1)}" width="${barW.toFixed(1)}" height="${aH.toFixed(1)}" rx="1"><title>${d.date}: ${d.abandoned} started, not completed</title></rect>`;
-                dayLabels += `<text class="chart-bar-label" x="${(groupX + groupW / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${d.date.slice(5)}</text>`;
+                dayLabels += `<text class="chart-bar-label" x="${(groupX + groupW / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${this._shortDateLabel(d.date)}</text>`;
             });
 
             const stepX = n > 1 ? innerW / (n - 1) : 0;
