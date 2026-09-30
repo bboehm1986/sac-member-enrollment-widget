@@ -484,6 +484,20 @@
                 "inferred as Total Set Up minus cumulative Completed, and the Wave/Defaulted " +
                 "join against AE_EventRqsts/vDimMember hasn't been deployed to this cube yet — " +
                 "see GOLD_VIEW_SPEC.md §7/§8/§10k in ae-member-enrollment-report/.";
+
+            // TEMPORARY DEBUG — remove once the RowKind binding is confirmed
+            // working against real data. Dumps the raw dimensions_0..7 of the
+            // first few bound rows so we can see exactly what SAC sends back
+            // for RowKind without needing DevTools.
+            if (!this._usingMockData) {
+                const rawRows = (this._aggregateData && this._aggregateData.data) || [];
+                const sample = rawRows.slice(0, 3).map((r, idx) => {
+                    const dims = [];
+                    for (let i = 0; i < 8; i++) dims.push(JSON.stringify(this._dim(r, i)));
+                    return "Row " + idx + ": [" + dims.join(", ") + "] measures_0=" + this._measure(r, 0);
+                }).join("  |  ");
+                root.getElementById("notice").textContent += "  DEBUG (" + rawRows.length + " total rows bound): " + sample;
+            }
         }
 
         // Daily Completion Tracker — header/stat-row/legend/chart, matching
