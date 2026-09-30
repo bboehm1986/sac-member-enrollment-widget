@@ -14,14 +14,14 @@ metric live on the sibling `sac-member-operational-widget` instead;
 per-member row detail lives on `sac-member-detail-widget`.
 
 **Design doc:** [`../ae-member-enrollment-report/GOLD_VIEW_SPEC.md`](../ae-member-enrollment-report/GOLD_VIEW_SPEC.md)
-defines the Gold-layer dataset and the aggregate cubes this suite binds
-to. [`BUILD_PLAN_FOR_AHMED.md`](../ae-member-enrollment-report/BUILD_PLAN_FOR_AHMED.md)
-is the build sequence, including the drafted Gold SQL (the `AE_EventRqsts`
-Wave/Defaulted join, the `vDimMember` Membership_Type join, all three new
-cubes). This widget's data bindings match `DS_MEMBER_ENROLLMENT_SUMMARY`/
-`DS_MEMBER_ENROLLMENT_DAILY`'s shape exactly — built against the target
-shape before the source data reliably flows, so nothing needs to change on
-the widget side once it does.
+defines the Gold-layer dataset. [`BUILD_PLAN_FOR_BLAIR.md`](../ae-member-enrollment-report/BUILD_PLAN_FOR_BLAIR.md)'s
+**"SUPERSEDED — consolidated into ONE aggregate cube"** section has the
+current authoritative cube SQL and architecture — **this widget binds to
+a single consolidated Analytic Model (`AM_MEMBER_ENROLLMENT_SUMMARY`)
+shared with `sac-member-operational-widget`**, not two separate cubes as
+originally designed. That redesign happened 2026-09-30 after discovering
+a SAC custom widget can only bind to one Analytic Model total, no matter
+how many named `dataBindings` its `widget.json` declares.
 
 ## Two lessons carried over from the start, not discovered the hard way again
 
@@ -39,66 +39,62 @@ from day one:
 ## Files
 
 - `widget.json` — manifest: properties (`width`, `height`, `asOfLabel`),
-  two data bindings (`enrollmentSummary`, `dailyTrend`), one exposed
-  scripting method (`refresh`).
+  a single `aggregateData` data binding (22 measures, 8 dimensions — see
+  below), one exposed scripting method (`refresh`).
 - `main.js` — defines the `<com-porticobenefits-memberenrollment>` custom
   element. Renders: a Set Up/Completed-by-Wave card row (Wave 1/2a/2b/3),
   overall Enrollment Status tiles (Set Up / Completed / **Started, Not
   Completed** — a display relabel of "Abandoned", same underlying data /
   Not Started / Multiple Attempts, each with a progress bar), Defaulted
   panels broken out by Wave 1/Wave 2a (the only two waves with a PSP
-  step), and a combined bar+cumulative-line daily timeline — two bar
-  series (Completed/Started-Not-Completed) plus a cumulative-Completed
-  line on an independent right-axis scale, matching the Employer suite's
-  combo-chart convention (`sac-ae-operational-widget`'s "Daily Completion
-  Tracker"). Hand-rolled inline SVG throughout — no external chart
-  library, same reasoning as the Employer widget (SAC widget iframes are
-  CSP-strict). Falls back to built-in mock data when no data binding is
-  bound, so the whole layout is reviewable standalone.
+  step), and a **Daily Completion Tracker comparing this cycle's daily
+  completions against the prior cycle's** (added 2026-09-30) — two bar
+  series (this cycle / prior cycle, completions only, aligned by day-of-
+  cycle rather than literal date since the two cycles are a calendar year
+  apart) plus two cumulative lines (solid this-cycle, dashed prior-cycle)
+  on an independent right-axis scale. Hand-rolled inline SVG throughout —
+  no external chart library, same reasoning as the Employer widget (SAC
+  widget iframes are CSP-strict). Falls back to built-in mock data when no
+  data binding is bound, so the whole layout is reviewable standalone.
 - `icon.svg` — icon shown in the SAC widget panel.
 - `preview.html` — standalone local test harness; drives the widget through
   the real `onCustomWidgetBeforeUpdate`/`onCustomWidgetAfterUpdate`
   lifecycle hooks, same pattern as the Employer widget's harness.
 
-## Data bindings — what they expect
+## Data bindings — what it expects
 
-Both are pre-aggregated cubes, never Gold-layer member-level rows (Gold is
-one row per Member, individual-level data — this widget only ever sees
-counts). See `GOLD_VIEW_SPEC.md` §7 for the full cube design.
+**One binding, `aggregateData`**, shared with `sac-member-operational-
+widget` — both bind to the same `AM_MEMBER_ENROLLMENT_SUMMARY` model,
+each filtering client-side by a `RowKind` discriminator dimension. This
+widget only reads two row-kinds (`StatusByWave` and `DailyTrend`); the
+other two (`ElectionSummary`, `WaiverTrend`) exist on the same model for
+Operational's use. See `main.js`'s own header comment for the exact
+dimension/measure order (SAC binds by position, not name — order matters
+when binding in the SAC Builder panel: Measures before Dimensions, then
+each list in the documented order).
 
-- **`enrollmentSummary`** ← `DS_MEMBER_ENROLLMENT_SUMMARY` — one row per
-  (Wave, Enrollment Status, Defaulted, Defaulted Timing); measures Member
-  Count and Multiple-Attempts Member Count.
-- **`dailyTrend`** ← `DS_MEMBER_ENROLLMENT_DAILY` — one row per (Date,
-  Wave, Enrollment Status); measure Member Count.
+Never Gold-layer member-level rows directly (Gold is one row per Member —
+this widget only ever sees counts). See `BUILD_PLAN_FOR_BLAIR.md`'s
+"SUPERSEDED — consolidated into ONE aggregate cube" section for the full
+cube SQL and design.
 
 ## Status of this build
 
-- ✅ Hosted on GitHub Pages and registered in SAC (shows a "Live" badge).
-  Tiles currently read against whatever `DS_MEMBER_ENROLLMENT_SUMMARY`/
-  `DAILY` return today — the drafted Gold rebuild in
-  `BUILD_PLAN_FOR_AHMED.md` (the `AE_EventRqsts` Wave/Defaulted join, the
-  `vDimMember` Membership_Type join, current-cycle `EventDate` scoping)
-  has **not been deployed yet**, so real Wave/Defaulted values won't show
-  until that happens.
-- ✅ **2026-09-22 widget refresh, verified in `preview.html` (no console
-  errors, correct chart/tile math against mock data):** the "As of"
-  timestamp now computes from the viewer's clock instead of trusting the
-  (unreliable) bound `asOfLabel` property; "Abandoned" displays as
-  "Started, Not Completed"; Defaulted is broken out into Wave 1/Wave 2a
-  panels instead of one combined Before/After PSP pair; the timeline is
-  now the Employer-style combined bar+cumulative-line chart with
-  independent scales, replacing the old plain two-series bar chart.
-- ⏳ Scope expanded 2026-09-21/22 into a 3-widget suite (see the top of
-  this doc and `GOLD_VIEW_SPEC.md` §10l) — the election-detail metrics,
-  waiver trend, and full per-wave status breakdown that were originally
-  going to live here instead belong on the sibling
-  `sac-member-operational-widget`. Nothing more to add to *this* widget
-  from that requirements list.
+- ✅ Hosted on GitHub Pages, registered in SAC, bound and **confirmed
+  working against real data** (2026-09-30).
+- ✅ "Abandoned" displays as "Started, Not Completed" everywhere in this
+  widget — pure display relabel, same underlying `Enrollment_Status`
+  value.
+- ✅ **Daily Completion Tracker redesigned 2026-09-30** into a this-cycle-
+  vs-prior-cycle comparison (see Files above) — Started-Not-Completed/
+  Abandoned bars were dropped from this chart entirely, completions only.
+- ✅ Timeline's x-axis is fixed to the known enrollment window (Oct 19 –
+  Dec 2, both cycles aligned by day-of-cycle), not auto-scaled to whatever
+  dates happen to have data — otherwise sparse/unrealistic test dates make
+  the chart misleading and the axis silently rescales as real data lands.
 - ⏳ Open design question carried over from `GOLD_VIEW_SPEC.md` §7: what
   "Total Not Started By Day" actually means (snapshot vs. cohort trend) —
-  not yet decided, so the timeline only plots Completed/Started-Not-
-  Completed for now (inferring Not Started separately, per §7).
+  not yet decided, not currently plotted.
 - ⏳ Pacing badge (Employer-style success/warning/danger indicator against
   an expected-progress curve) was researched as a possible Snap-report
   addition but **not built** — Member Enrollment's four Waves have
@@ -108,10 +104,9 @@ counts). See `GOLD_VIEW_SPEC.md` §7 for the full cube design.
 
 ## Next steps
 
-1. Deploy the drafted Gold SQL (`BUILD_PLAN_FOR_AHMED.md`) so
-   `DS_MEMBER_ENROLLMENT_SUMMARY`/`DAILY` actually carry real Wave/
-   Defaulted/Defaulted_Timing values.
-2. Confirm the widget's tile math against real (not mock) data once that
-   lands.
-3. Add a native SAC Input Control for Wave/Status filtering, wired to the
+1. Add a native SAC Input Control for Wave/Status filtering, wired to the
    same model — not built into the widget, per the lesson above.
+2. Once BR-29 (see `BUILD_PLAN_FOR_BLAIR.md`) is confirmed fixed and the
+   `vDimMember` join is restored in Gold, `TotalEligibleLives`/
+   `TotalCoveredLives` will start populating for real — no widget change
+   needed, they're already wired up as placeholders.
