@@ -62,9 +62,18 @@
                            (dimensions_3), Defaulted_Timing (dimensions_5) /
                            MemberCount (measures_0), MultipleAttemptsMember-
                            Count (measures_1)
-      - 'DailyTrend'   -> Wave (dimensions_2), Enrollment_Status
-                           (dimensions_3), ActivityDate (dimensions_6) /
-                           MemberCount (measures_0)
+      - 'DailyTrend'   -> EventDate (dimensions_1, identifies which cycle --
+                           2027-01-01 = this cycle, 2026-01-01 = prior),
+                           Wave (dimensions_2), ActivityDate (dimensions_6,
+                           = Completed_Date; Abandoned is excluded from this
+                           row-kind per Blair, 2026-09-30 -- Timeline shows
+                           completions only) / MemberCount (measures_0)
+
+    REDESIGNED 2026-09-30 (per Blair): the Timeline chart now compares this
+    cycle's daily completions against the prior cycle's, aligned by DAY-OF-
+    CYCLE rather than literal date, since the two cycles' real activity
+    windows are a full calendar year apart. See CYCLE_START/PRIOR_CYCLE_
+    START and _parseDailyTrend below.
 
     No in-widget filter controls, no theme toggle, light theme only — by
     design from the start this time, not a lesson learned the hard way:
@@ -85,11 +94,15 @@
     // Fixed Timeline window, per Blair (2026-09-30) — mirrors the Employer
     // suite's own timeline, which fixes its x-axis to the known enrollment
     // window rather than auto-scaling to whatever dates happen to have
-    // data. Covers all 4 waves combined (10/19 - 12/2). TODO: reconfirm
+    // data. Covers all 4 waves combined (10/19 - 12/2). Also used to align
+    // the current cycle against the prior cycle (one calendar year earlier)
+    // for a day-of-cycle comparison — see _parseDailyTrend. TODO: reconfirm
     // these dates each cycle — same annual-maintenance pattern as the
     // EventDate literals used elsewhere in this build.
-    const CYCLE_START = new Date(2026, 9, 19);  // Oct 19, 2026
+    const CYCLE_START = new Date(2026, 9, 19);  // Oct 19, 2026 (this cycle)
     const CYCLE_END = new Date(2026, 11, 2);    // Dec 2, 2026
+    const PRIOR_CYCLE_START = new Date(2025, 9, 19); // Oct 19, 2025 (prior cycle, same day-of-cycle alignment)
+    const CYCLE_LENGTH_DAYS = Math.round((CYCLE_END - CYCLE_START) / 86400000) + 1;
 
     // Parses either an ISO "YYYY-MM-DD" string (mock data) or a locale date
     // label like "Aug 31, 2026" (real SAC dimension labels) into a Date at
@@ -126,9 +139,12 @@
             [count, multi].concat(NULL_20)
         );
     }
-    function rowDailyTrend(date, wave, status, count) {
+    // DailyTrend is Success-only now (Abandoned dropped from this row-kind,
+    // see file header) and spans both cycles -- eventDate identifies which
+    // cycle ("2027-01-01" = this cycle, "2026-01-01" = prior cycle).
+    function rowDailyTrend(eventDate, wave, activityDate, count) {
         return row(
-            ["DailyTrend", null, wave, status, null, null, date, null],
+            ["DailyTrend", eventDate, wave, "Success", null, null, activityDate, null],
             [count].concat(new Array(21).fill(null))
         );
     }
@@ -159,21 +175,40 @@
         rowStatusByWave("Wave 3", "Abandoned", "No", "N/A", 2, 1),
         rowStatusByWave("Wave 3", "Not Started", "Yes", "N/A", 5, 0),
 
-        rowDailyTrend("2026-10-19", "Wave 1", "Success", 12), rowDailyTrend("2026-10-19", "Wave 1", "Abandoned", 1),
-        rowDailyTrend("2026-10-20", "Wave 1", "Success", 25), rowDailyTrend("2026-10-20", "Wave 1", "Abandoned", 2),
-        rowDailyTrend("2026-10-21", "Wave 1", "Success", 30), rowDailyTrend("2026-10-21", "Wave 1", "Abandoned", 3),
-        rowDailyTrend("2026-10-22", "Wave 1", "Success", 40), rowDailyTrend("2026-10-22", "Wave 1", "Abandoned", 2),
-        rowDailyTrend("2026-10-23", "Wave 1", "Success", 22), rowDailyTrend("2026-10-23", "Wave 1", "Abandoned", 4),
-        rowDailyTrend("2026-10-26", "Wave 1", "Success", 55), rowDailyTrend("2026-10-26", "Wave 1", "Abandoned", 5),
-        rowDailyTrend("2026-10-27", "Wave 1", "Success", 48), rowDailyTrend("2026-10-27", "Wave 1", "Abandoned", 3),
-        rowDailyTrend("2026-10-28", "Wave 1", "Success", 35), rowDailyTrend("2026-10-28", "Wave 1", "Abandoned", 6),
-        rowDailyTrend("2026-10-29", "Wave 1", "Success", 60), rowDailyTrend("2026-10-29", "Wave 1", "Abandoned", 4),
-        rowDailyTrend("2026-10-30", "Wave 1", "Success", 70), rowDailyTrend("2026-10-30", "Wave 1", "Abandoned", 5),
-        rowDailyTrend("2026-11-02", "Wave 1", "Success", 90), rowDailyTrend("2026-11-02", "Wave 1", "Abandoned", 8),
-        rowDailyTrend("2026-11-09", "Wave 2a", "Success", 33), rowDailyTrend("2026-11-09", "Wave 2a", "Abandoned", 2),
-        rowDailyTrend("2026-11-10", "Wave 2a", "Success", 45), rowDailyTrend("2026-11-10", "Wave 2a", "Abandoned", 3),
-        rowDailyTrend("2026-11-16", "Wave 2a", "Success", 60), rowDailyTrend("2026-11-16", "Wave 2a", "Abandoned", 5),
-        rowDailyTrend("2026-11-17", "Wave 2a", "Success", 75), rowDailyTrend("2026-11-17", "Wave 2a", "Abandoned", 7),
+        // This cycle (EventDate 2027-01-01)
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-19", 12),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-20", 25),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-21", 30),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-22", 40),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-23", 22),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-26", 55),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-27", 48),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-28", 35),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-29", 60),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-10-30", 70),
+        rowDailyTrend("2027-01-01", "Wave 1", "2026-11-02", 90),
+        rowDailyTrend("2027-01-01", "Wave 2a", "2026-11-09", 33),
+        rowDailyTrend("2027-01-01", "Wave 2a", "2026-11-10", 45),
+        rowDailyTrend("2027-01-01", "Wave 2a", "2026-11-16", 60),
+        rowDailyTrend("2027-01-01", "Wave 2a", "2026-11-17", 75),
+        // Prior cycle (EventDate 2026-01-01) -- same day-of-cycle offsets,
+        // one calendar year earlier, illustrative mock ratios only (roughly
+        // 70-85% of this cycle's pace, not derived from any real trend).
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-19", 9),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-20", 18),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-21", 22),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-22", 30),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-23", 16),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-26", 40),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-27", 35),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-28", 26),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-29", 45),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-10-30", 50),
+        rowDailyTrend("2026-01-01", "Wave 1", "2025-11-02", 65),
+        rowDailyTrend("2026-01-01", "Wave 2a", "2025-11-09", 24),
+        rowDailyTrend("2026-01-01", "Wave 2a", "2025-11-10", 32),
+        rowDailyTrend("2026-01-01", "Wave 2a", "2025-11-16", 42),
+        rowDailyTrend("2026-01-01", "Wave 2a", "2025-11-17", 55),
     ] };
 
     // ---- Template ----
@@ -289,6 +324,7 @@
             .chart-legend-item { display: flex; align-items: center; gap: 6px; }
             .chart-legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
             .chart-legend-swatch.line { width: 14px; height: 2px; border-radius: 1px; }
+            .chart-legend-swatch.dashed-line { width: 14px; height: 2px; border-radius: 0; background: repeating-linear-gradient(to right, var(--info) 0 4px, transparent 4px 7px); }
             .chart-wrap { margin-top: 2px; }
             .chart-svg { width: 100%; height: 170px; display: block; }
             .chart-axis-label { font-size: 9px; fill: var(--text-soft); }
@@ -296,6 +332,7 @@
             .chart-bar-label { font-size: 8.5px; fill: var(--text-soft); }
             .chart-bar.completed { fill: var(--success); }
             .chart-bar.abandoned { fill: var(--danger); }
+            .chart-bar.prior-completed { fill: var(--info); opacity: 0.7; }
 
             .notice { margin-top: 18px; background: var(--warning-bg); border: 1px solid rgba(165,112,12,0.3); border-radius: 14px; padding: 10px 14px; font-size: 11.5px; color: var(--text); box-shadow: var(--shadow-card); }
         </style>
@@ -418,32 +455,45 @@
             return { byWave, byStatus, totalSetUp, multipleAttempts, defaultedBeforePsp, defaultedAfterPsp, defaultedByWave };
         }
 
+        // Compares this cycle's daily completions against the prior cycle's,
+        // aligned by DAY-OF-CYCLE rather than literal calendar date — per
+        // Blair (2026-09-30) — since the two cycles' real activity windows
+        // are a full calendar year apart (this cycle: Oct-Dec 2026; prior
+        // cycle: Oct-Dec 2025). "EventDate" (dimensions_1) identifies which
+        // cycle a row belongs to (2027-01-01 = this cycle, 2026-01-01 =
+        // prior); "ActivityDate" (dimensions_6, Completed_Date for this
+        // row-kind — Abandoned is excluded, see file header) is the day the
+        // completion actually happened. Both get converted to an offset
+        // from their own cycle's start, so "day 0" always means the first
+        // day of the enrollment window regardless of which cycle a bar
+        // belongs to.
         _parseDailyTrend() {
             const rows = this._rowsOfKind("DailyTrend");
-            const byKey = {};
+            const thisCycleByOffset = {};
+            const priorCycleByOffset = {};
             rows.forEach((r) => {
-                const d = parseDateFlexible(this._dim(r, 6));
-                if (isNaN(d.getTime())) return;
-                const key = dayKey(d);
-                const status = this._dim(r, 3);
+                const eventDate = parseDateFlexible(this._dim(r, 1));
+                const activityDate = parseDateFlexible(this._dim(r, 6));
+                if (isNaN(eventDate.getTime()) || isNaN(activityDate.getTime())) return;
+                const year = eventDate.getFullYear();
+                let cycleStart, target;
+                if (year === CYCLE_START.getFullYear() + 1) { cycleStart = CYCLE_START; target = thisCycleByOffset; }
+                else if (year === PRIOR_CYCLE_START.getFullYear() + 1) { cycleStart = PRIOR_CYCLE_START; target = priorCycleByOffset; }
+                else return; // unrecognized cycle, ignore rather than guess
+                const offset = Math.round((activityDate - cycleStart) / 86400000);
+                if (offset < 0 || offset >= CYCLE_LENGTH_DAYS) return; // outside the fixed window
                 const count = this._measure(r, 0);
-                if (!byKey[key]) byKey[key] = { completed: 0, abandoned: 0 };
-                if (status === "Success") byKey[key].completed += count;
-                else if (status === "Abandoned") byKey[key].abandoned += count;
+                target[offset] = (target[offset] || 0) + count;
             });
 
-            // Always show the full enrollment window (fixed CYCLE_START -
-            // CYCLE_END above), not just the days that happen to have data —
-            // per Blair (2026-09-30), matching the Employer suite's own
-            // timeline, which fixes its axis to the known cycle window
-            // rather than auto-scaling to whatever's populated so far.
+            // Always show the full fixed window (CYCLE_START - CYCLE_END),
+            // not just days with data — same reasoning as before, now
+            // applied to both cycles at once.
             const days = [];
-            const cursor = new Date(CYCLE_START.getFullYear(), CYCLE_START.getMonth(), CYCLE_START.getDate());
-            while (cursor <= CYCLE_END) {
-                const key = dayKey(cursor);
-                const entry = byKey[key] || { completed: 0, abandoned: 0 };
-                days.push({ dateObj: new Date(cursor), completed: entry.completed, abandoned: entry.abandoned });
-                cursor.setDate(cursor.getDate() + 1);
+            for (let i = 0; i < CYCLE_LENGTH_DAYS; i++) {
+                const dateObj = new Date(CYCLE_START);
+                dateObj.setDate(dateObj.getDate() + i);
+                days.push({ dateObj, thisCycle: thisCycleByOffset[i] || 0, priorCycle: priorCycleByOffset[i] || 0 });
             }
             return days;
         }
@@ -530,30 +580,30 @@
                 "see GOLD_VIEW_SPEC.md §7/§8/§10k in ae-member-enrollment-report/.";
         }
 
-        // Daily Completion Tracker — header/stat-row/legend/chart, matching
-        // sac-ae-operational-widget's convention. Keeps both bar series
-        // (Completed / Started-Not-Completed) since that per-day contrast is
-        // meaningful for Member Enrollment, unlike the Employer widget's
-        // single-series original — but adds the same cumulative-line overlay
-        // on an independent scale (a shared scale would flatten the bars).
+        // Daily Completion Tracker — per Blair (2026-09-30), now a this-
+        // cycle-vs-prior-cycle comparison rather than a Completed/Started-
+        // Not-Completed breakdown: two bar series (this cycle / prior
+        // cycle, completions only) plus two cumulative lines on an
+        // independent scale (a shared scale would flatten the bars).
         _renderTimeline(container, daily, summary) {
             let cum = 0;
-            daily.forEach((d) => { cum += d.completed; });
+            daily.forEach((d) => { cum += d.thisCycle; });
             const totalCompleted = cum;
             const pctOfSetUp = summary.totalSetUp ? Math.round((totalCompleted / summary.totalSetUp) * 100) : 0;
 
             container.innerHTML = `
                 <div class="cum-tracker-header">
-                    <div class="cum-tracker-title">Daily Completion Tracker</div>
+                    <div class="cum-tracker-title">Daily Completion Tracker — This Cycle vs. Prior Cycle</div>
                 </div>
                 <div class="cum-tracker-row">
                     <div><div class="cum-stat-value">${totalCompleted.toLocaleString()}</div><div class="cum-stat-label">Cumulative Completed</div></div>
                     <div><div class="cum-stat-value">${pctOfSetUp}%</div><div class="cum-stat-label">of Total Set Up</div></div>
                 </div>
                 <div class="chart-legend">
-                    <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--success);"></span>Completed</div>
-                    <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--danger);"></span>Started, Not Completed</div>
-                    <div class="chart-legend-item"><span class="chart-legend-swatch line" style="background:var(--accent);"></span>Cumulative Completed</div>
+                    <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--success);"></span>This Cycle</div>
+                    <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--info);opacity:.7;"></span>Prior Cycle</div>
+                    <div class="chart-legend-item"><span class="chart-legend-swatch line" style="background:var(--accent);"></span>Cumulative — This Cycle</div>
+                    <div class="chart-legend-item"><span class="chart-legend-swatch dashed-line"></span>Cumulative — Prior Cycle</div>
                 </div>
                 <div class="chart-wrap">${this._svgComboChart(daily)}</div>
             `;
@@ -567,10 +617,11 @@
                 return `<svg viewBox="0 0 ${width} ${height}" class="chart-svg"><text x="10" y="20" class="chart-bar-label">No timeline data bound yet</text></svg>`;
             }
 
-            const barMax = Math.max(1, ...daily.map((d) => Math.max(d.completed, d.abandoned)));
-            let cum = 0;
-            const cumPoints = daily.map((d) => (cum += d.completed));
-            const cumMax = Math.max(1, ...cumPoints);
+            const barMax = Math.max(1, ...daily.map((d) => Math.max(d.thisCycle, d.priorCycle)));
+            let cumThis = 0, cumPrior = 0;
+            const cumThisPoints = daily.map((d) => (cumThis += d.thisCycle));
+            const cumPriorPoints = daily.map((d) => (cumPrior += d.priorCycle));
+            const cumMax = Math.max(1, ...cumThisPoints, ...cumPriorPoints);
 
             const groupW = innerW / n;
             const barW = groupW * 0.32;
@@ -588,22 +639,24 @@
             let bars = "", dayLabels = "";
             daily.forEach((d, i) => {
                 const groupX = padL + i * groupW;
-                const cH = (innerH * d.completed) / barMax;
-                const aH = (innerH * d.abandoned) / barMax;
-                const cX = groupX + gap;
-                const aX = cX + barW + 2;
+                const tH = (innerH * d.thisCycle) / barMax;
+                const pH = (innerH * d.priorCycle) / barMax;
+                const tX = groupX + gap;
+                const pX = tX + barW + 2;
                 const fullLabel = d.dateObj.toLocaleDateString("en-US", { month: "long", day: "numeric" });
-                bars += `<rect class="chart-bar completed" x="${cX.toFixed(1)}" y="${(padT + innerH - cH).toFixed(1)}" width="${barW.toFixed(1)}" height="${cH.toFixed(1)}" rx="1"><title>${fullLabel}: ${d.completed} completed</title></rect>`;
-                bars += `<rect class="chart-bar abandoned" x="${aX.toFixed(1)}" y="${(padT + innerH - aH).toFixed(1)}" width="${barW.toFixed(1)}" height="${aH.toFixed(1)}" rx="1"><title>${fullLabel}: ${d.abandoned} started, not completed</title></rect>`;
+                bars += `<rect class="chart-bar completed" x="${tX.toFixed(1)}" y="${(padT + innerH - tH).toFixed(1)}" width="${barW.toFixed(1)}" height="${tH.toFixed(1)}" rx="1"><title>${fullLabel} (day ${i + 1} of cycle): ${d.thisCycle} completed, this cycle</title></rect>`;
+                bars += `<rect class="chart-bar prior-completed" x="${pX.toFixed(1)}" y="${(padT + innerH - pH).toFixed(1)}" width="${barW.toFixed(1)}" height="${pH.toFixed(1)}" rx="1"><title>Day ${i + 1} of cycle: ${d.priorCycle} completed, prior cycle</title></rect>`;
                 if (i % labelStride === 0 || i === n - 1) {
                     dayLabels += `<text class="chart-bar-label" x="${(groupX + groupW / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${this._shortDateLabel(d.dateObj)}</text>`;
                 }
             });
 
             const stepX = n > 1 ? innerW / (n - 1) : 0;
-            const coords = cumPoints.map((v, i) => [padL + i * stepX, padT + innerH - (v / cumMax) * innerH]);
-            const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-            const dots = coords.map(([x, y], i) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--accent)"><title>${daily[i].dateObj.toLocaleDateString("en-US", { month: "long", day: "numeric" })}: ${cumPoints[i]} cumulative completed</title></circle>`).join("");
+            const thisCoords = cumThisPoints.map((v, i) => [padL + i * stepX, padT + innerH - (v / cumMax) * innerH]);
+            const priorCoords = cumPriorPoints.map((v, i) => [padL + i * stepX, padT + innerH - (v / cumMax) * innerH]);
+            const thisLinePath = thisCoords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+            const priorLinePath = priorCoords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+            const thisDots = thisCoords.map(([x, y], i) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--accent)"><title>Day ${i + 1} of cycle: ${cumThisPoints[i]} cumulative completed, this cycle</title></circle>`).join("");
 
             const axisLabels = `
                 <text class="chart-axis-label" x="${(padL - 6).toFixed(1)}" y="${(padT + 4).toFixed(1)}" text-anchor="end">${barMax}</text>
@@ -611,10 +664,11 @@
                 <text class="chart-axis-label" x="${(width - padR + 6).toFixed(1)}" y="${(padT + 4).toFixed(1)}" text-anchor="start">${cumMax}</text>
                 <text class="chart-axis-label" x="${(width - padR + 6).toFixed(1)}" y="${(padT + innerH).toFixed(1)}" text-anchor="start">0</text>`;
 
-            return `<svg viewBox="0 0 ${width} ${height}" class="chart-svg" role="img" aria-label="Daily and cumulative completions">
+            return `<svg viewBox="0 0 ${width} ${height}" class="chart-svg" role="img" aria-label="Daily completions, this cycle vs. prior cycle">
                 ${grid}${bars}
-                <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2"></path>
-                ${dots}${dayLabels}${axisLabels}
+                <path d="${priorLinePath}" fill="none" stroke="var(--info)" stroke-width="2" stroke-dasharray="4,3"></path>
+                <path d="${thisLinePath}" fill="none" stroke="var(--accent)" stroke-width="2"></path>
+                ${thisDots}${dayLabels}${axisLabels}
             </svg>`;
         }
     }

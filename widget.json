@@ -1,7 +1,7 @@
 {
     "id": "com.porticobenefits.memberenrollment",
     "name": "AE Member Enrollment",
-    "version": "1.2.4",
+    "version": "1.3.0",
     "vendor": "Portico Benefits",
     "license": "",
     "eula": "",
@@ -13,7 +13,7 @@
             "kind": "main",
             "tag": "com-porticobenefits-memberenrollment",
             "url": "https://bboehm1986.github.io/sac-member-enrollment-widget/main.js",
-            "integrity": "sha384-sZvmrDKSkJa1f9xwVQFRyxsFwU7M+Es0O3h5o3b6Skzj5GuWMOMixGPoSEmD8729"
+            "integrity": "sha384-wwZIn+161+wEqi2sXekJ5SwGXQoWH9JMn1OhROPGGgZCC1gGx7UrbyNTXeSozIdX"
         }
     ],
     "properties": {
