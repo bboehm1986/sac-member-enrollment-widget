@@ -82,6 +82,30 @@
     const WAVES = ["Wave 1", "Wave 2a", "Wave 2b", "Wave 3"];
     const STATUSES = ["Success", "Abandoned", "Not Started", "In Progress", "Needs Follow-up"];
 
+    // Fixed Timeline window, per Blair (2026-09-30) — mirrors the Employer
+    // suite's own timeline, which fixes its x-axis to the known enrollment
+    // window rather than auto-scaling to whatever dates happen to have
+    // data. Covers all 4 waves combined (10/19 - 12/2). TODO: reconfirm
+    // these dates each cycle — same annual-maintenance pattern as the
+    // EventDate literals used elsewhere in this build.
+    const CYCLE_START = new Date(2026, 9, 19);  // Oct 19, 2026
+    const CYCLE_END = new Date(2026, 11, 2);    // Dec 2, 2026
+
+    // Parses either an ISO "YYYY-MM-DD" string (mock data) or a locale date
+    // label like "Aug 31, 2026" (real SAC dimension labels) into a Date at
+    // LOCAL midnight consistently — avoids the classic bug where
+    // `new Date("2026-10-19")` parses as UTC midnight while
+    // `new Date("Aug 31, 2026")` parses as local midnight, which can shift
+    // ISO-parsed dates back a day depending on the viewer's timezone.
+    function parseDateFlexible(str) {
+        const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+        if (isoMatch) return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+        return new Date(str);
+    }
+    function dayKey(d) {
+        return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+
     // ---- Mock data (mirrors the real SAC ResultSet row shape) ----
     // Dimension order (8): RowKind, EventDate, Wave, Enrollment_Status,
     //                       Defaulted, Defaulted_Timing, ActivityDate,
@@ -396,29 +420,36 @@
 
         _parseDailyTrend() {
             const rows = this._rowsOfKind("DailyTrend");
-            const byDate = {};
+            const byKey = {};
             rows.forEach((r) => {
-                const date = this._dim(r, 6);
+                const d = parseDateFlexible(this._dim(r, 6));
+                if (isNaN(d.getTime())) return;
+                const key = dayKey(d);
                 const status = this._dim(r, 3);
                 const count = this._measure(r, 0);
-                if (!byDate[date]) byDate[date] = { completed: 0, abandoned: 0 };
-                if (status === "Success") byDate[date].completed += count;
-                else if (status === "Abandoned") byDate[date].abandoned += count;
+                if (!byKey[key]) byKey[key] = { completed: 0, abandoned: 0 };
+                if (status === "Success") byKey[key].completed += count;
+                else if (status === "Abandoned") byKey[key].abandoned += count;
             });
-            // Sort by actual parsed date, not the raw string -- SAC returns
-            // dimension labels like "Aug 31, 2026", not the ISO "2026-08-31"
-            // the mock data uses, and a plain string sort on month-name dates
-            // silently breaks (e.g. "Dec" < "Oct" alphabetically).
-            return Object.keys(byDate)
-                .map((date) => ({ date, sortKey: new Date(date).getTime(), ...byDate[date] }))
-                .sort((a, b) => a.sortKey - b.sortKey);
+
+            // Always show the full enrollment window (fixed CYCLE_START -
+            // CYCLE_END above), not just the days that happen to have data —
+            // per Blair (2026-09-30), matching the Employer suite's own
+            // timeline, which fixes its axis to the known cycle window
+            // rather than auto-scaling to whatever's populated so far.
+            const days = [];
+            const cursor = new Date(CYCLE_START.getFullYear(), CYCLE_START.getMonth(), CYCLE_START.getDate());
+            while (cursor <= CYCLE_END) {
+                const key = dayKey(cursor);
+                const entry = byKey[key] || { completed: 0, abandoned: 0 };
+                days.push({ dateObj: new Date(cursor), completed: entry.completed, abandoned: entry.abandoned });
+                cursor.setDate(cursor.getDate() + 1);
+            }
+            return days;
         }
-        // Formats a bound date string (ISO from mock data, or a locale label
-        // like "Aug 31, 2026" from real SAC data) into a compact axis label.
-        _shortDateLabel(dateStr) {
-            const d = new Date(dateStr);
-            if (isNaN(d.getTime())) return dateStr;
-            return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        // Compact axis label ("Oct 19") from a Date object.
+        _shortDateLabel(dateObj) {
+            return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
         }
 
         // ---- Small render helpers ----
@@ -544,6 +575,9 @@
             const groupW = innerW / n;
             const barW = groupW * 0.32;
             const gap = groupW * 0.12;
+            // Fixed calendar range means ~45 days on screen -- only label
+            // every Nth day (targeting ~9 labels) so they don't overlap.
+            const labelStride = Math.max(1, Math.ceil(n / 9));
 
             let grid = "";
             [0.25, 0.5, 0.75].forEach((f) => {
@@ -558,15 +592,18 @@
                 const aH = (innerH * d.abandoned) / barMax;
                 const cX = groupX + gap;
                 const aX = cX + barW + 2;
-                bars += `<rect class="chart-bar completed" x="${cX.toFixed(1)}" y="${(padT + innerH - cH).toFixed(1)}" width="${barW.toFixed(1)}" height="${cH.toFixed(1)}" rx="1"><title>${d.date}: ${d.completed} completed</title></rect>`;
-                bars += `<rect class="chart-bar abandoned" x="${aX.toFixed(1)}" y="${(padT + innerH - aH).toFixed(1)}" width="${barW.toFixed(1)}" height="${aH.toFixed(1)}" rx="1"><title>${d.date}: ${d.abandoned} started, not completed</title></rect>`;
-                dayLabels += `<text class="chart-bar-label" x="${(groupX + groupW / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${this._shortDateLabel(d.date)}</text>`;
+                const fullLabel = d.dateObj.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+                bars += `<rect class="chart-bar completed" x="${cX.toFixed(1)}" y="${(padT + innerH - cH).toFixed(1)}" width="${barW.toFixed(1)}" height="${cH.toFixed(1)}" rx="1"><title>${fullLabel}: ${d.completed} completed</title></rect>`;
+                bars += `<rect class="chart-bar abandoned" x="${aX.toFixed(1)}" y="${(padT + innerH - aH).toFixed(1)}" width="${barW.toFixed(1)}" height="${aH.toFixed(1)}" rx="1"><title>${fullLabel}: ${d.abandoned} started, not completed</title></rect>`;
+                if (i % labelStride === 0 || i === n - 1) {
+                    dayLabels += `<text class="chart-bar-label" x="${(groupX + groupW / 2).toFixed(1)}" y="${height - 6}" text-anchor="middle">${this._shortDateLabel(d.dateObj)}</text>`;
+                }
             });
 
             const stepX = n > 1 ? innerW / (n - 1) : 0;
             const coords = cumPoints.map((v, i) => [padL + i * stepX, padT + innerH - (v / cumMax) * innerH]);
             const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-            const dots = coords.map(([x, y], i) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--accent)"><title>${daily[i].date}: ${cumPoints[i]} cumulative completed</title></circle>`).join("");
+            const dots = coords.map(([x, y], i) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--accent)"><title>${daily[i].dateObj.toLocaleDateString("en-US", { month: "long", day: "numeric" })}: ${cumPoints[i]} cumulative completed</title></circle>`).join("");
 
             const axisLabels = `
                 <text class="chart-axis-label" x="${(padL - 6).toFixed(1)}" y="${(padT + 4).toFixed(1)}" text-anchor="end">${barMax}</text>
