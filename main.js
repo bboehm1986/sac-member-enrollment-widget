@@ -15,34 +15,56 @@
     scales for the bars vs. the cumulative line, a shared scale would
     flatten the bars). See ../ae-member-enrollment-report/GOLD_VIEW_SPEC.md
     for the full design (field definitions, business rules, reference
-    calendar) and ../ae-member-enrollment-report/BUILD_PLAN_FOR_AHMED.md
+    calendar) and ../ae-member-enrollment-report/BUILD_PLAN_FOR_BLAIR.md
     for how the two data bindings below get built.
 
-    This widget binds to two PRE-AGGREGATED cubes, never to Gold-layer
-    member-level rows directly (Gold is one row per Member, individual-level
-    data — this widget only ever sees counts). Data bindings (declared in
-    widget.json), each following SAC's standard ResultSet row shape
-    ({ data: [ { dimensions_0: {id,label}, ..., measures_0: {raw,formatted},
-    ... } ] }):
+    ONE PRE-AGGREGATED data binding (declared in widget.json) — never
+    Gold-layer member-level rows directly (Gold is one row per Member,
+    individual-level data — this widget only ever sees counts).
 
-      - enrollmentSummary  <- DS_MEMBER_ENROLLMENT_SUMMARY
-            dimensions_0 = Wave ("Wave 1" / "Wave 2a" / "Wave 2b" / "Wave 3")
-            dimensions_1 = Enrollment Status (Success / Abandoned /
-                            Not Started / In Progress / Needs Follow-up)
-            dimensions_2 = Defaulted ("Yes" / "No")
-            dimensions_3 = Defaulted Timing ("Before PSP" / "After PSP" /
-                            "N/A")
-            measures_0   = Member Count
-            measures_1   = Multiple-Attempts Member Count (members in this
-                            combination with Total Attempts > 1)
+    REDESIGNED 2026-09-30: a single SAC custom widget can only bind to one
+    Analytic Model total, even if widget.json declares multiple named
+    dataBindings (confirmed via the Employer Election project — a widget's
+    bindings can't each point at a different model). The original 2-binding
+    design (enrollmentSummary -> AM_MEMBER_ENROLLMENT_SUMMARY, dailyTrend ->
+    AM_MEMBER_ENROLLMENT_DAILY, two different models) could never have
+    worked — it just hadn't been caught yet since dailyTrend went untested
+    for a while. Fixed the same way as the sibling sac-member-operational-
+    widget: DS_MEMBER_ENROLLMENT_SUMMARY is now a UNION ALL of 4 "row-kinds"
+    (mirroring the Employer suite's own multiplexed-cube pattern), each
+    populating only the dimensions/measures relevant to it and leaving the
+    rest NULL, plus a RowKind discriminator column. This widget reads the
+    same one Analytic Model (AM_MEMBER_ENROLLMENT_SUMMARY) as Operational
+    does, via a single "aggregateData" binding, filtering by RowKind — it
+    just only cares about the StatusByWave and DailyTrend row-kinds.
 
-      - dailyTrend         <- DS_MEMBER_ENROLLMENT_DAILY
-            dimensions_0 = Date (YYYY-MM-DD)
-            dimensions_1 = Wave
-            dimensions_2 = Enrollment Status (only Success/Abandoned carry a
-                            date today — see GOLD_VIEW_SPEC.md §7's open
-                            question on what "Not Started by day" even means)
-            measures_0   = Member Count
+    SAC's standard ResultSet row shape ({ data: [ { dimensions_0: {id,
+    label}, ..., measures_0: {raw,formatted}, ... } ] }) — dimensions and
+    measures MUST be added in the Builder panel in this exact order (SAC
+    binds by position, not by name), same as sac-member-operational-widget:
+
+      Dimensions (8): RowKind, EventDate, Wave, Enrollment_Status,
+                       Defaulted, Defaulted_Timing, ActivityDate,
+                       Membership_Type
+      Measures (22):  MemberCount, MultipleAttemptsMemberCount,
+                       TotalEligibleLives, TotalCoveredLives, WaivedCount,
+                       HSA_Count, HSA_Avg_Amount, FSA_Health_Count,
+                       FSA_Health_Avg_Amount, FSA_Dependent_Count,
+                       FSA_Dependent_Avg_Amount, SuppLife_Member_Count,
+                       SuppLife_Member_Avg_Amount, SuppLife_Spouse_Count,
+                       SuppLife_Spouse_Avg_Amount, SuppLife_Dependent_Count,
+                       SuppLife_Dependent_Avg_Amount, Retirement_Pretax_Count,
+                       Retirement_Pretax_Avg_Amount, Retirement_Roth_Count,
+                       Retirement_Roth_Avg_Amount, Vision_Election_Count
+
+    This widget only reads two row-kinds:
+      - 'StatusByWave' -> Wave (dimensions_2), Enrollment_Status
+                           (dimensions_3), Defaulted_Timing (dimensions_5) /
+                           MemberCount (measures_0), MultipleAttemptsMember-
+                           Count (measures_1)
+      - 'DailyTrend'   -> Wave (dimensions_2), Enrollment_Status
+                           (dimensions_3), ActivityDate (dimensions_6) /
+                           MemberCount (measures_0)
 
     No in-widget filter controls, no theme toggle, light theme only — by
     design from the start this time, not a lesson learned the hard way:
@@ -50,9 +72,9 @@
     events to a custom widget's shadow DOM (confirmed on the Employer
     Selections widget). Filtering belongs in a native SAC Input Control.
 
-    Until the two bindings above are wired to real Datasphere-backed
-    models, the widget renders from the MOCK_* constants below so the
-    layout can be built and reviewed standalone (see preview.html).
+    Until the binding above is wired to real Datasphere-backed data, the
+    widget renders from the MOCK_* constants below so the layout can be
+    built and reviewed standalone (see preview.html).
 */
 (function () {
     "use strict";
@@ -61,56 +83,73 @@
     const STATUSES = ["Success", "Abandoned", "Not Started", "In Progress", "Needs Follow-up"];
 
     // ---- Mock data (mirrors the real SAC ResultSet row shape) ----
+    // Dimension order (8): RowKind, EventDate, Wave, Enrollment_Status,
+    //                       Defaulted, Defaulted_Timing, ActivityDate,
+    //                       Membership_Type
+    // Measure order (22): MemberCount, MultipleAttemptsMemberCount, ...
+    // (full list in the file header) -- this widget only ever populates
+    // measures_0/measures_1, the rest stay null.
     function row(dims, measures) {
         const out = {};
         dims.forEach((d, i) => { out["dimensions_" + i] = { id: d, label: d }; });
-        measures.forEach((m, i) => { out["measures_" + i] = { raw: m, formatted: String(m) }; });
+        measures.forEach((m, i) => { out["measures_" + i] = { raw: m, formatted: m == null ? "" : String(m) }; });
         return out;
     }
+    const NULL_20 = new Array(20).fill(null);
+    function rowStatusByWave(wave, status, defaulted, defaultedTiming, count, multi) {
+        return row(
+            ["StatusByWave", null, wave, status, defaulted, defaultedTiming, null, null],
+            [count, multi].concat(NULL_20)
+        );
+    }
+    function rowDailyTrend(date, wave, status, count) {
+        return row(
+            ["DailyTrend", null, wave, status, null, null, date, null],
+            [count].concat(new Array(21).fill(null))
+        );
+    }
 
-    const MOCK_ENROLLMENT_SUMMARY = { data: [
+    const MOCK_AGGREGATE_DATA = { data: [
         // Wave 1 (all sponsored) — PSP applies
-        row(["Wave 1", "Success", "No", "N/A"], [610, 140]),
-        row(["Wave 1", "Abandoned", "No", "N/A"], [35, 28]),
-        row(["Wave 1", "In Progress", "No", "N/A"], [8, 3]),
-        row(["Wave 1", "Not Started", "Yes", "Before PSP"], [25, 0]),
-        row(["Wave 1", "Not Started", "Yes", "After PSP"], [12, 0]),
-        row(["Wave 1", "Needs Follow-up", "No", "N/A"], [15, 6]),
+        rowStatusByWave("Wave 1", "Success", "No", "N/A", 610, 140),
+        rowStatusByWave("Wave 1", "Abandoned", "No", "N/A", 35, 28),
+        rowStatusByWave("Wave 1", "In Progress", "No", "N/A", 8, 3),
+        rowStatusByWave("Wave 1", "Not Started", "Yes", "Before PSP", 25, 0),
+        rowStatusByWave("Wave 1", "Not Started", "Yes", "After PSP", 12, 0),
+        rowStatusByWave("Wave 1", "Needs Follow-up", "No", "N/A", 15, 6),
         // Wave 2a (sponsored, excludes Medicare) — PSP applies
-        row(["Wave 2a", "Success", "No", "N/A"], [340, 55]),
-        row(["Wave 2a", "Abandoned", "No", "N/A"], [18, 12]),
-        row(["Wave 2a", "In Progress", "No", "N/A"], [5, 1]),
-        row(["Wave 2a", "Not Started", "Yes", "Before PSP"], [14, 0]),
-        row(["Wave 2a", "Not Started", "Yes", "After PSP"], [6, 0]),
-        row(["Wave 2a", "Needs Follow-up", "No", "N/A"], [9, 4]),
+        rowStatusByWave("Wave 2a", "Success", "No", "N/A", 340, 55),
+        rowStatusByWave("Wave 2a", "Abandoned", "No", "N/A", 18, 12),
+        rowStatusByWave("Wave 2a", "In Progress", "No", "N/A", 5, 1),
+        rowStatusByWave("Wave 2a", "Not Started", "Yes", "Before PSP", 14, 0),
+        rowStatusByWave("Wave 2a", "Not Started", "Yes", "After PSP", 6, 0),
+        rowStatusByWave("Wave 2a", "Needs Follow-up", "No", "N/A", 9, 4),
         // Wave 2b (non-sponsored) — no PSP
-        row(["Wave 2b", "Success", "No", "N/A"], [480, 60]),
-        row(["Wave 2b", "Abandoned", "No", "N/A"], [22, 15]),
-        row(["Wave 2b", "In Progress", "No", "N/A"], [11, 2]),
-        row(["Wave 2b", "Not Started", "Yes", "N/A"], [31, 0]),
-        row(["Wave 2b", "Needs Follow-up", "No", "N/A"], [13, 5]),
+        rowStatusByWave("Wave 2b", "Success", "No", "N/A", 480, 60),
+        rowStatusByWave("Wave 2b", "Abandoned", "No", "N/A", 22, 15),
+        rowStatusByWave("Wave 2b", "In Progress", "No", "N/A", 11, 2),
+        rowStatusByWave("Wave 2b", "Not Started", "Yes", "N/A", 31, 0),
+        rowStatusByWave("Wave 2b", "Needs Follow-up", "No", "N/A", 13, 5),
         // Wave 3 (small population, if needed) — no PSP
-        row(["Wave 3", "Success", "No", "N/A"], [42, 6]),
-        row(["Wave 3", "Abandoned", "No", "N/A"], [2, 1]),
-        row(["Wave 3", "Not Started", "Yes", "N/A"], [5, 0]),
-    ] };
+        rowStatusByWave("Wave 3", "Success", "No", "N/A", 42, 6),
+        rowStatusByWave("Wave 3", "Abandoned", "No", "N/A", 2, 1),
+        rowStatusByWave("Wave 3", "Not Started", "Yes", "N/A", 5, 0),
 
-    const MOCK_DAILY_TREND = { data: [
-        row(["2026-10-19", "Wave 1", "Success"], [12]), row(["2026-10-19", "Wave 1", "Abandoned"], [1]),
-        row(["2026-10-20", "Wave 1", "Success"], [25]), row(["2026-10-20", "Wave 1", "Abandoned"], [2]),
-        row(["2026-10-21", "Wave 1", "Success"], [30]), row(["2026-10-21", "Wave 1", "Abandoned"], [3]),
-        row(["2026-10-22", "Wave 1", "Success"], [40]), row(["2026-10-22", "Wave 1", "Abandoned"], [2]),
-        row(["2026-10-23", "Wave 1", "Success"], [22]), row(["2026-10-23", "Wave 1", "Abandoned"], [4]),
-        row(["2026-10-26", "Wave 1", "Success"], [55]), row(["2026-10-26", "Wave 1", "Abandoned"], [5]),
-        row(["2026-10-27", "Wave 1", "Success"], [48]), row(["2026-10-27", "Wave 1", "Abandoned"], [3]),
-        row(["2026-10-28", "Wave 1", "Success"], [35]), row(["2026-10-28", "Wave 1", "Abandoned"], [6]),
-        row(["2026-10-29", "Wave 1", "Success"], [60]), row(["2026-10-29", "Wave 1", "Abandoned"], [4]),
-        row(["2026-10-30", "Wave 1", "Success"], [70]), row(["2026-10-30", "Wave 1", "Abandoned"], [5]),
-        row(["2026-11-02", "Wave 1", "Success"], [90]), row(["2026-11-02", "Wave 1", "Abandoned"], [8]),
-        row(["2026-11-09", "Wave 2a", "Success"], [33]), row(["2026-11-09", "Wave 2a", "Abandoned"], [2]),
-        row(["2026-11-10", "Wave 2a", "Success"], [45]), row(["2026-11-10", "Wave 2a", "Abandoned"], [3]),
-        row(["2026-11-16", "Wave 2a", "Success"], [60]), row(["2026-11-16", "Wave 2a", "Abandoned"], [5]),
-        row(["2026-11-17", "Wave 2a", "Success"], [75]), row(["2026-11-17", "Wave 2a", "Abandoned"], [7]),
+        rowDailyTrend("2026-10-19", "Wave 1", "Success", 12), rowDailyTrend("2026-10-19", "Wave 1", "Abandoned", 1),
+        rowDailyTrend("2026-10-20", "Wave 1", "Success", 25), rowDailyTrend("2026-10-20", "Wave 1", "Abandoned", 2),
+        rowDailyTrend("2026-10-21", "Wave 1", "Success", 30), rowDailyTrend("2026-10-21", "Wave 1", "Abandoned", 3),
+        rowDailyTrend("2026-10-22", "Wave 1", "Success", 40), rowDailyTrend("2026-10-22", "Wave 1", "Abandoned", 2),
+        rowDailyTrend("2026-10-23", "Wave 1", "Success", 22), rowDailyTrend("2026-10-23", "Wave 1", "Abandoned", 4),
+        rowDailyTrend("2026-10-26", "Wave 1", "Success", 55), rowDailyTrend("2026-10-26", "Wave 1", "Abandoned", 5),
+        rowDailyTrend("2026-10-27", "Wave 1", "Success", 48), rowDailyTrend("2026-10-27", "Wave 1", "Abandoned", 3),
+        rowDailyTrend("2026-10-28", "Wave 1", "Success", 35), rowDailyTrend("2026-10-28", "Wave 1", "Abandoned", 6),
+        rowDailyTrend("2026-10-29", "Wave 1", "Success", 60), rowDailyTrend("2026-10-29", "Wave 1", "Abandoned", 4),
+        rowDailyTrend("2026-10-30", "Wave 1", "Success", 70), rowDailyTrend("2026-10-30", "Wave 1", "Abandoned", 5),
+        rowDailyTrend("2026-11-02", "Wave 1", "Success", 90), rowDailyTrend("2026-11-02", "Wave 1", "Abandoned", 8),
+        rowDailyTrend("2026-11-09", "Wave 2a", "Success", 33), rowDailyTrend("2026-11-09", "Wave 2a", "Abandoned", 2),
+        rowDailyTrend("2026-11-10", "Wave 2a", "Success", 45), rowDailyTrend("2026-11-10", "Wave 2a", "Abandoned", 3),
+        rowDailyTrend("2026-11-16", "Wave 2a", "Success", 60), rowDailyTrend("2026-11-16", "Wave 2a", "Abandoned", 5),
+        rowDailyTrend("2026-11-17", "Wave 2a", "Success", 75), rowDailyTrend("2026-11-17", "Wave 2a", "Abandoned", 7),
     ] };
 
     // ---- Template ----
@@ -272,8 +311,7 @@
             this._shadowRoot.appendChild(template.content.cloneNode(true));
 
             this._props = { width: 900, height: 650, asOfLabel: "Live" };
-            this._enrollmentSummary = MOCK_ENROLLMENT_SUMMARY;
-            this._dailyTrend = MOCK_DAILY_TREND;
+            this._aggregateData = MOCK_AGGREGATE_DATA;
             this._usingMockData = true;
         }
 
@@ -288,8 +326,7 @@
         onCustomWidgetAfterUpdate(changedProperties) {
             if ("width" in changedProperties) this.style.width = changedProperties.width + "px";
             if ("height" in changedProperties) this.style.height = changedProperties.height + "px";
-            if ("enrollmentSummary" in changedProperties) { this._enrollmentSummary = changedProperties.enrollmentSummary; this._usingMockData = false; }
-            if ("dailyTrend" in changedProperties) { this._dailyTrend = changedProperties.dailyTrend; this._usingMockData = false; }
+            if ("aggregateData" in changedProperties) { this._aggregateData = changedProperties.aggregateData; this._usingMockData = false; }
             this._render();
         }
 
@@ -303,17 +340,24 @@
         }
 
         // ---- Parsing helpers ----
+        // Dimension/measure indices below match the ONE consolidated
+        // model's fixed column order documented in the file header --
+        // RowKind is always dimensions_0.
         _dim(r, i) {
             const d = r["dimensions_" + i];
             return d ? d.label : "";
         }
         _measure(r, i) {
             const m = r["measures_" + i];
-            return m ? Number(m.raw) : 0;
+            return m && m.raw != null ? Number(m.raw) : 0;
+        }
+        _rowsOfKind(kind) {
+            const rows = (this._aggregateData && this._aggregateData.data) || [];
+            return rows.filter((r) => this._dim(r, 0) === kind);
         }
 
         _parseSummary() {
-            const rows = (this._enrollmentSummary && this._enrollmentSummary.data) || [];
+            const rows = this._rowsOfKind("StatusByWave");
             const byWave = {};
             WAVES.forEach((w) => { byWave[w] = { setUp: 0, completed: 0 }; });
             const byStatus = {};
@@ -326,9 +370,9 @@
             let defaultedBeforePsp = 0, defaultedAfterPsp = 0;
 
             rows.forEach((r) => {
-                const wave = this._dim(r, 0);
-                const status = this._dim(r, 1);
-                const timing = this._dim(r, 3);
+                const wave = this._dim(r, 2);
+                const status = this._dim(r, 3);
+                const timing = this._dim(r, 5);
                 const count = this._measure(r, 0);
                 const multi = this._measure(r, 1);
 
@@ -351,11 +395,11 @@
         }
 
         _parseDailyTrend() {
-            const rows = (this._dailyTrend && this._dailyTrend.data) || [];
+            const rows = this._rowsOfKind("DailyTrend");
             const byDate = {};
             rows.forEach((r) => {
-                const date = this._dim(r, 0);
-                const status = this._dim(r, 2);
+                const date = this._dim(r, 6);
+                const status = this._dim(r, 3);
                 const count = this._measure(r, 0);
                 if (!byDate[date]) byDate[date] = { completed: 0, abandoned: 0 };
                 if (status === "Success") byDate[date].completed += count;

@@ -1,7 +1,7 @@
 {
     "id": "com.porticobenefits.memberenrollment",
     "name": "AE Member Enrollment",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "vendor": "Portico Benefits",
     "license": "",
     "eula": "",
@@ -31,30 +31,16 @@
         }
     },
     "dataBindings": {
-        "enrollmentSummary": {
+        "aggregateData": {
             "feeds": [
                 {
                     "id": "dimensions",
-                    "description": "Wave / Enrollment Status / Defaulted / Defaulted Timing",
+                    "description": "ONE consolidated model, all 8 dimensions in this exact order -- RowKind (StatusByWave/DailyTrend/ElectionSummary/WaiverTrend discriminator), EventDate, Wave, Enrollment_Status, Defaulted, Defaulted_Timing, ActivityDate, Membership_Type. A single SAC widget can only bind to one Analytic Model total (confirmed on the Employer Election project) -- DS_MEMBER_ENROLLMENT_SUMMARY is now a UNION ALL of 4 row-kinds, each populating only the dimensions/measures relevant to it and leaving the rest NULL. This widget only reads the StatusByWave and DailyTrend row-kinds; ElectionSummary/WaiverTrend are the sibling sac-member-operational-widget's concern, but this is the SAME bound model (same AM_MEMBER_ENROLLMENT_SUMMARY), so all 8 dimensions/22 measures still need to be added here in this exact order.",
                     "type": "dimension"
                 },
                 {
                     "id": "measures",
-                    "description": "Member Count, Multiple-Attempts Member Count",
-                    "type": "mainStructureMember"
-                }
-            ]
-        },
-        "dailyTrend": {
-            "feeds": [
-                {
-                    "id": "dimensions",
-                    "description": "Date / Wave / Enrollment Status",
-                    "type": "dimension"
-                },
-                {
-                    "id": "measures",
-                    "description": "Member Count",
+                    "description": "ONE consolidated model, all 22 measures in this exact order -- MemberCount, MultipleAttemptsMemberCount, TotalEligibleLives, TotalCoveredLives, WaivedCount, HSA_Count, HSA_Avg_Amount, FSA_Health_Count, FSA_Health_Avg_Amount, FSA_Dependent_Count, FSA_Dependent_Avg_Amount, SuppLife_Member_Count, SuppLife_Member_Avg_Amount, SuppLife_Spouse_Count, SuppLife_Spouse_Avg_Amount, SuppLife_Dependent_Count, SuppLife_Dependent_Avg_Amount, Retirement_Pretax_Count, Retirement_Pretax_Avg_Amount, Retirement_Roth_Count, Retirement_Roth_Avg_Amount, Vision_Election_Count. This widget only reads MemberCount/MultipleAttemptsMemberCount (StatusByWave row-kind) and MemberCount (DailyTrend row-kind).",
                     "type": "mainStructureMember"
                 }
             ]
