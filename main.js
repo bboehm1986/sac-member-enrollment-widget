@@ -43,9 +43,9 @@
     measures MUST be added in the Builder panel in this exact order (SAC
     binds by position, not by name), same as sac-member-operational-widget:
 
-      Dimensions (8): RowKind, EventDate, Wave, Enrollment_Status,
+      Dimensions (9): RowKind, EventDate, Wave, Enrollment_Status,
                        Defaulted, Defaulted_Timing, ActivityDate,
-                       Membership_Type
+                       Membership_Type, Is_Portico_Employee
       Measures (22):  MemberCount, MultipleAttemptsMemberCount,
                        TotalEligibleLives, TotalCoveredLives, WaivedCount,
                        HSA_Count, HSA_Avg_Amount, FSA_Health_Count,
@@ -68,6 +68,13 @@
                            = Completed_Date; Abandoned is excluded from this
                            row-kind per Blair, 2026-09-30 -- Timeline shows
                            completions only) / MemberCount (measures_0)
+
+    ADDED 2026-10-01 (per Blair): Is_Portico_Employee (dimensions_8) --
+    Portico's own employees are EXCLUDED from this widget's numbers
+    entirely, via a check built into _rowsOfKind() so every row-kind read
+    by this widget gets it automatically. The mirror widget showing ONLY
+    Portico employees is sac-member-enrollment-portico-widget -- same
+    model, same code shape, opposite filter.
 
     REDESIGNED 2026-09-30 (per Blair): the Timeline chart now compares this
     cycle's daily completions against the prior cycle's, aligned by DAY-OF-
@@ -120,9 +127,9 @@
     }
 
     // ---- Mock data (mirrors the real SAC ResultSet row shape) ----
-    // Dimension order (8): RowKind, EventDate, Wave, Enrollment_Status,
+    // Dimension order (9): RowKind, EventDate, Wave, Enrollment_Status,
     //                       Defaulted, Defaulted_Timing, ActivityDate,
-    //                       Membership_Type
+    //                       Membership_Type, Is_Portico_Employee
     // Measure order (22): MemberCount, MultipleAttemptsMemberCount, ...
     // (full list in the file header) -- this widget only ever populates
     // measures_0/measures_1, the rest stay null.
@@ -133,18 +140,20 @@
         return out;
     }
     const NULL_20 = new Array(20).fill(null);
-    function rowStatusByWave(wave, status, defaulted, defaultedTiming, count, multi) {
+    // isPortico defaults to "No" -- this widget's own mock population is
+    // the general (non-Portico) member base it's meant to show.
+    function rowStatusByWave(wave, status, defaulted, defaultedTiming, count, multi, isPortico) {
         return row(
-            ["StatusByWave", null, wave, status, defaulted, defaultedTiming, null, null],
+            ["StatusByWave", null, wave, status, defaulted, defaultedTiming, null, null, isPortico || "No"],
             [count, multi].concat(NULL_20)
         );
     }
     // DailyTrend is Success-only now (Abandoned dropped from this row-kind,
     // see file header) and spans both cycles -- eventDate identifies which
     // cycle ("2027-01-01" = this cycle, "2026-01-01" = prior cycle).
-    function rowDailyTrend(eventDate, wave, activityDate, count) {
+    function rowDailyTrend(eventDate, wave, activityDate, count, isPortico) {
         return row(
-            ["DailyTrend", eventDate, wave, "Success", null, null, activityDate, null],
+            ["DailyTrend", eventDate, wave, "Success", null, null, activityDate, null, isPortico || "No"],
             [count].concat(new Array(21).fill(null))
         );
     }
@@ -412,9 +421,12 @@
             const m = r["measures_" + i];
             return m && m.raw != null ? Number(m.raw) : 0;
         }
+        // Excludes Portico's own employees (Is_Portico_Employee,
+        // dimensions_8) from every row-kind this widget reads -- added
+        // 2026-10-01 per Blair. Centralized here so no caller can forget it.
         _rowsOfKind(kind) {
             const rows = (this._aggregateData && this._aggregateData.data) || [];
-            return rows.filter((r) => this._dim(r, 0) === kind);
+            return rows.filter((r) => this._dim(r, 0) === kind && this._dim(r, 8) !== "Yes");
         }
 
         _parseSummary() {

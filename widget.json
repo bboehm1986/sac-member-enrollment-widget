@@ -1,7 +1,7 @@
 {
     "id": "com.porticobenefits.memberenrollment",
     "name": "AE Member Enrollment",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "vendor": "Portico Benefits",
     "license": "",
     "eula": "",
@@ -13,7 +13,7 @@
             "kind": "main",
             "tag": "com-porticobenefits-memberenrollment",
             "url": "https://bboehm1986.github.io/sac-member-enrollment-widget/main.js",
-            "integrity": "sha384-wwZIn+161+wEqi2sXekJ5SwGXQoWH9JMn1OhROPGGgZCC1gGx7UrbyNTXeSozIdX"
+            "integrity": "sha384-DLJM8BWkQ8wjglOXcFewcIbVUbbIQT7+hn3x4g3uxXuDLbm+3AXcpABpf8iQkCOP"
         }
     ],
     "properties": {
@@ -35,7 +35,7 @@
             "feeds": [
                 {
                     "id": "dimensions",
-                    "description": "ONE consolidated model, all 8 dimensions in this exact order -- RowKind (StatusByWave/DailyTrend/ElectionSummary/WaiverTrend discriminator), EventDate, Wave, Enrollment_Status, Defaulted, Defaulted_Timing, ActivityDate, Membership_Type. A single SAC widget can only bind to one Analytic Model total (confirmed on the Employer Election project) -- DS_MEMBER_ENROLLMENT_SUMMARY is now a UNION ALL of 4 row-kinds, each populating only the dimensions/measures relevant to it and leaving the rest NULL. This widget only reads the StatusByWave and DailyTrend row-kinds; ElectionSummary/WaiverTrend are the sibling sac-member-operational-widget's concern, but this is the SAME bound model (same AM_MEMBER_ENROLLMENT_SUMMARY), so all 8 dimensions/22 measures still need to be added here in this exact order.",
+                    "description": "ONE consolidated model, all 9 dimensions in this exact order -- RowKind (StatusByWave/DailyTrend/ElectionSummary/WaiverTrend discriminator), EventDate, Wave, Enrollment_Status, Defaulted, Defaulted_Timing, ActivityDate, Membership_Type, Is_Portico_Employee. A single SAC widget can only bind to one Analytic Model total (confirmed on the Employer Election project) -- DS_MEMBER_ENROLLMENT_SUMMARY is now a UNION ALL of 4 row-kinds, each populating only the dimensions/measures relevant to it and leaving the rest NULL. This widget only reads the StatusByWave and DailyTrend row-kinds; ElectionSummary/WaiverTrend are the sibling sac-member-operational-widget's concern, but this is the SAME bound model (same AM_MEMBER_ENROLLMENT_SUMMARY), so all 9 dimensions/22 measures still need to be added here in this exact order. Is_Portico_Employee (added 2026-10-01) is used to EXCLUDE Portico's own employees from this widget's numbers -- see sac-member-enrollment-portico-widget for the mirror widget that shows ONLY them.",
                     "type": "dimension"
                 },
                 {
