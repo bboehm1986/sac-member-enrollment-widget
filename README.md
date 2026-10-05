@@ -104,8 +104,12 @@ cube SQL and design.
 
 ## Next steps
 
-1. Add a native SAC Input Control for Wave/Status filtering, wired to the
-   same model — not built into the widget, per the lesson above.
+1. ✅ Done (2026-10-03): native SAC Input Controls for Wave (priority) and
+   Enrollment_Status exist on this page, wired to the same model — not
+   built into the widget, per the lesson above. They are safe here because
+   the cube carries a real value for those dimensions in every row-kind
+   (see `BUILD_PLAN_FOR_BLAIR.md`'s cube design rule). Never add an
+   `EventDate` control — the YoY timeline/waiver panels need both cycles.
 2. Once BR-29 (see `BUILD_PLAN_FOR_BLAIR.md`) is confirmed fixed and the
    `vDimMember` join is restored in Gold, `TotalEligibleLives`/
    `TotalCoveredLives` will start populating for real — no widget change
