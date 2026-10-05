@@ -273,12 +273,12 @@
                 padding: 18px;
             }
 
-            .tile, .panel, .wave-card, .notice, .badge {
+            .tile, .panel, .wave-card, .badge {
                 backdrop-filter: var(--glass-blur);
                 -webkit-backdrop-filter: var(--glass-blur);
             }
             @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-                .tile, .panel, .wave-card, .notice { background: rgba(255,255,255,0.94) !important; }
+                .tile, .panel, .wave-card { background: rgba(255,255,255,0.94) !important; }
             }
 
             .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
@@ -343,7 +343,6 @@
             .chart-bar.abandoned { fill: var(--danger); }
             .chart-bar.prior-completed { fill: var(--info); opacity: 0.7; }
 
-            .notice { margin-top: 18px; background: var(--warning-bg); border: 1px solid rgba(165,112,12,0.3); border-radius: 14px; padding: 10px 14px; font-size: 11.5px; color: var(--text); box-shadow: var(--shadow-card); }
         </style>
         <div class="dashboard">
             <div class="topbar">
@@ -352,7 +351,6 @@
                     <div class="titlewrap">
                         <h1>Member Enrollment</h1>
                         <span class="badge accent" id="dataBadge">Mock Data — Preview</span>
-                        <span class="badge warning">2 Open Items</span>
                     </div>
                     <div class="asof" id="asof"></div>
                 </div>
@@ -369,8 +367,6 @@
 
             <div class="section-title">Timeline</div>
             <div class="panel" id="timelinePanel"></div>
-
-            <div class="notice" id="notice"></div>
         </div>
     `;
 
@@ -584,12 +580,6 @@
 
             // Timeline
             this._renderTimeline(root.getElementById("timelinePanel"), daily, summary);
-
-            root.getElementById("notice").textContent =
-                "⚠ Open items: \"Total Not Started By Day\" isn't a tracked field — it's " +
-                "inferred as Total Set Up minus cumulative Completed, and the Wave/Defaulted " +
-                "join against AE_EventRqsts/vDimMember hasn't been deployed to this cube yet — " +
-                "see GOLD_VIEW_SPEC.md §7/§8/§10k in ae-member-enrollment-report/.";
         }
 
         // Daily Completion Tracker — per Blair (2026-09-30), now a this-
