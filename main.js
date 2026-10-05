@@ -422,7 +422,10 @@
         // 2026-10-01 per Blair. Centralized here so no caller can forget it.
         _rowsOfKind(kind) {
             const rows = (this._aggregateData && this._aggregateData.data) || [];
-            return rows.filter((r) => this._dim(r, 0) === kind && this._dim(r, 8) !== "Yes");
+            // Also excludes FLEX members (Wave "Group A".."Group F", added
+            // 2026-10-05): they share this model but belong to the FLEX
+            // dashboard (sac-flex-member-widget). Blank-Wave rows are kept.
+            return rows.filter((r) => this._dim(r, 0) === kind && this._dim(r, 8) !== "Yes" && !/^Group /.test(this._dim(r, 2)));
         }
 
         _parseSummary() {

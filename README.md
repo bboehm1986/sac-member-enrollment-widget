@@ -23,6 +23,11 @@ originally designed. That redesign happened 2026-09-30 after discovering
 a SAC custom widget can only bind to one Analytic Model total, no matter
 how many named `dataBindings` its `widget.json` declares.
 
+
+## FLEX members are excluded (v1.5.0, 2026-10-05)
+
+`GLD_AE_Member_Enrollment` is shared with the FLEX dashboard (`sac-flex-member-widget`). FLEX members carry Wave "Group A"–"Group F", and this widget drops any row whose Wave starts with `Group `, next to its Portico exclusion. Blank-Wave rows are kept, so Traditional numbers don't change. In a headless check, output was byte-identical with and without FLEX rows injected. Gold's `Employer` column is also no longer NULL: it now holds "Name (Number)". Details: `../flex-member-enrollment-report/GOLD_CHANGES.md`.
+
 ## Two lessons carried over from the start, not discovered the hard way again
 
 The Employer Selections widget went through a real debugging cycle to learn
