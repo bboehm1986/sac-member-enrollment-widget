@@ -110,6 +110,21 @@
     const CYCLE_END = new Date(2026, 11, 2);    // Dec 2, 2026
     const PRIOR_CYCLE_START = new Date(2025, 9, 19); // Oct 19, 2025 (prior cycle, same day-of-cycle alignment)
     const CYCLE_LENGTH_DAYS = Math.round((CYCLE_END - CYCLE_START) / 86400000) + 1;
+    // Prior cycle = rows whose EventDate year is 2026 (this cycle is 2027).
+    const PRIOR_EVENT_YEAR = 2026;
+    // Each wave's own window -- same values as sac-member-pace-widget; keep
+    // the two in sync (annual maintenance, same note as the cycle dates).
+    const WAVE_WINDOWS = {
+        "Wave 1":  [new Date(2026, 9, 19),  new Date(2026, 10, 2)],
+        "Wave 2a": [new Date(2026, 10, 9),  new Date(2026, 10, 17)],
+        "Wave 2b": [new Date(2026, 10, 9),  new Date(2026, 10, 30)],
+        "Wave 3":  [new Date(2026, 10, 24), new Date(2026, 11, 2)],
+    };
+    function windowFraction(now, start, end) {
+        const len = Math.round((end - start) / 86400000) + 1;
+        const elapsed = Math.min(len, Math.max(0, Math.floor((now - start) / 86400000) + 1));
+        return elapsed / len;
+    }
 
     // Parses either an ISO "YYYY-MM-DD" string (mock data) or a locale date
     // label like "Aug 31, 2026" (real SAC dimension labels) into a Date at
@@ -146,6 +161,14 @@
         return row(
             ["StatusByWave", null, wave, status, defaulted, defaultedTiming, null, null, isPortico || "No"],
             [count, multi].concat(NULL_20)
+        );
+    }
+    // Prior-cycle (2026) member counts by Defaulted: the last-day target is
+    // 1 - defaulted / total (Patrick Wendel, 2026-10-16).
+    function rowWaiverTrend(eventDate, defaulted, count) {
+        return row(
+            ["WaiverTrend", eventDate, null, null, defaulted, null, null, null, "No"],
+            [count].concat(new Array(21).fill(null))
         );
     }
     // DailyTrend is Success-only now (Abandoned dropped from this row-kind,
@@ -185,6 +208,8 @@
         rowStatusByWave("Wave 3", "Not Started", "Yes", "N/A", 5, 0),
 
         // This cycle (EventDate 2027-01-01)
+        rowWaiverTrend("Jan 1, 2026", "No", 22945),
+        rowWaiverTrend("Jan 1, 2026", "Yes", 5518),
         rowDailyTrend("2027-01-01", "Wave 1", "2026-10-19", 12),
         rowDailyTrend("2027-01-01", "Wave 1", "2026-10-20", 25),
         rowDailyTrend("2027-01-01", "Wave 1", "2026-10-21", 30),
@@ -328,6 +353,12 @@
             .cum-stat-label { font-size: 10.5px; color: var(--text-soft); text-transform: uppercase; letter-spacing: 0.04em; }
             .badge.success { color: var(--success); border-color: rgba(20,151,111,.35); background: var(--success-bg); }
             .badge.lg { font-size: 12px; font-weight: 700; padding: 5px 14px; }
+            .badge.danger { color: var(--danger); border-color: rgba(201,75,75,.35); background: var(--danger-bg); }
+            .cum-stat-value.onpace { color: var(--success); }
+            .cum-stat-value.watch { color: var(--warning); }
+            .cum-stat-value.behind { color: var(--danger); }
+            .cum-stat-count { font-size: 12px; font-weight: 600; color: var(--text-soft); }
+            .cum-stat-sub { font-size: 10.5px; color: var(--text-soft); margin-top: 2px; }
 
             .chart-legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 11px; color: var(--text-soft); flex-wrap: wrap; }
             .chart-legend-item { display: flex; align-items: center; gap: 6px; }
@@ -463,7 +494,8 @@
                 }
             });
 
-            return { byWave, byStatus, totalSetUp, multipleAttempts, defaultedBeforePsp, defaultedAfterPsp, defaultedByWave };
+            const waveSetUp = WAVES.reduce((a, w) => a + byWave[w].setUp, 0);
+            return { byWave, byStatus, totalSetUp, multipleAttempts, defaultedBeforePsp, defaultedAfterPsp, defaultedByWave, untaggedSetUp: totalSetUp - waveSetUp };
         }
 
         // Compares this cycle's daily completions against the prior cycle's,
@@ -508,6 +540,43 @@
             }
             return days;
         }
+        // Last-day target (Patrick Wendel, 2026-10-16): the share who actively
+        // elect = 1 - prior-cycle defaulted / prior-cycle total eligible, from
+        // the WaiverTrend row-kind. 100% when there is no prior-cycle data.
+        _priorTargetPct() {
+            let total = 0, defaulted = 0;
+            this._rowsOfKind("WaiverTrend").forEach((r) => {
+                const ym = /(20\d{2})/.exec(this._dim(r, 1));
+                if (!ym || Number(ym[1]) !== PRIOR_EVENT_YEAR) return;
+                const c = this._measure(r, 0);
+                total += c;
+                if (this._dim(r, 4) === "Yes") defaulted += c;
+            });
+            return total ? (1 - defaulted / total) * 100 : 100;
+        }
+
+        // Actual vs expected completion, same method as sac-member-pace-widget:
+        // each wave's straight line across its own window, weighted by its
+        // set-up count, scaled to the last-day target.
+        _computePace(summary, completed) {
+            const targetPct = this._priorTargetPct();
+            const today = new Date();
+            const notOpen = today < CYCLE_START;
+            const dayIndex = notOpen ? 0 : Math.min(CYCLE_LENGTH_DAYS, Math.floor((today - CYCLE_START) / 86400000) + 1);
+            if (notOpen || !summary.totalSetUp) {
+                return { notOpen: true, targetPct, dayIndex, statusLabel: notOpen ? "Not Open Yet" : "Nothing Set Up Yet", status: "neutral" };
+            }
+            let weighted = summary.untaggedSetUp * windowFraction(today, CYCLE_START, CYCLE_END);
+            WAVES.forEach((w) => { weighted += summary.byWave[w].setUp * windowFraction(today, WAVE_WINDOWS[w][0], WAVE_WINDOWS[w][1]); });
+            const expectedPct = (weighted / summary.totalSetUp) * targetPct;
+            const actualPct = (completed / summary.totalSetUp) * 100;
+            const delta = actualPct - expectedPct;
+            const status = delta >= -5 ? "onpace" : delta >= -15 ? "watch" : "behind";
+            const statusLabel = status === "onpace" ? (delta >= 5 ? "Ahead of Pace" : "On Pace") : status === "watch" ? "Watch" : "Behind Pace";
+            const deltaCount = Math.round(completed - (expectedPct / 100) * summary.totalSetUp);
+            return { notOpen: false, targetPct, dayIndex, expectedPct, actualPct, deltaPts: Math.round(delta * 10) / 10, deltaCount, status, statusLabel };
+        }
+
         // Compact axis label ("Oct 19") from a Date object.
         _shortDateLabel(dateObj) {
             return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -594,15 +663,39 @@
             let cum = 0;
             daily.forEach((d) => { cum += d.thisCycle; });
             const totalCompleted = cum;
-            const pctOfSetUp = summary.totalSetUp ? Math.round((totalCompleted / summary.totalSetUp) * 100) : 0;
+            // % Completed uses the same Success count as the Completed tile and
+            // the pace calculation (and the thermometer), so the three always
+            // agree; the daily series above only supplies the running count.
+            const pctOfSetUp = summary.totalSetUp ? Math.round((summary.byStatus["Success"] / summary.totalSetUp) * 100) : 0;
+
+            // Same layout as the Employer tracker (Patrick/Paul, 2026-10-16):
+            // completed count, % completed, and a vs.-expected-pace delta in
+            // points (with the count behind/ahead beside it), plus a badge.
+            const pace = this._computePace(summary, summary.byStatus["Success"]);
+            const badge = `<span class="badge lg ${pace.status === "onpace" ? "success" : pace.status === "watch" ? "warning" : pace.status === "behind" ? "danger" : "accent"}">${pace.statusLabel}</span>`;
+            let vsExpectedHtml = "";
+            if (!pace.notOpen) {
+                const sign = pace.deltaPts > 0 ? "+" : "";
+                const countSign = pace.deltaCount > 0 ? "+" : "";
+                vsExpectedHtml = `
+                    <div>
+                        <div class="cum-stat-value ${pace.status}">${sign}${pace.deltaPts.toFixed(1)} pts <span class="cum-stat-count">(${countSign}${pace.deltaCount.toLocaleString()})</span></div>
+                        <div class="cum-stat-label">vs. Expected Pace (Day ${pace.dayIndex})</div>
+                        <div class="cum-stat-sub">${pace.actualPct.toFixed(1)}% actual vs. ${pace.expectedPct.toFixed(1)}% expected</div>
+                    </div>`;
+            }
+            const lastDay = CYCLE_END.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
             container.innerHTML = `
                 <div class="cum-tracker-header">
                     <div class="cum-tracker-title">Daily Completion Tracker — This Cycle vs. Prior Cycle</div>
+                    ${badge}
                 </div>
                 <div class="cum-tracker-row">
                     <div><div class="cum-stat-value">${totalCompleted.toLocaleString()}</div><div class="cum-stat-label">Cumulative Completed</div></div>
-                    <div><div class="cum-stat-value">${pctOfSetUp}%</div><div class="cum-stat-label">of Total Set Up</div></div>
+                    <div><div class="cum-stat-value">${pctOfSetUp}%</div><div class="cum-stat-label">% Completed</div></div>
+                    ${vsExpectedHtml}
+                    <div><div class="cum-stat-value">${pace.targetPct.toFixed(1)}%</div><div class="cum-stat-label">Last-Day Target (${lastDay})</div></div>
                 </div>
                 <div class="chart-legend">
                     <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--success);"></span>This Cycle</div>
