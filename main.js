@@ -117,7 +117,7 @@
     const WAVE_WINDOWS = {
         "Wave 1":  [new Date(2026, 9, 19),  new Date(2026, 10, 2)],
         "Wave 2a": [new Date(2026, 10, 9),  new Date(2026, 10, 17)],
-        "Wave 2b": [new Date(2026, 10, 9),  new Date(2026, 10, 30)],
+        "Wave 2b": [new Date(2026, 10, 9),  new Date(2026, 10, 23)],
         "Wave 3":  [new Date(2026, 10, 24), new Date(2026, 11, 2)],
     };
     function windowFraction(now, start, end) {
@@ -612,7 +612,7 @@
                 return `
                     <div class="wave-card">
                         <div class="wave-name">${w}</div>
-                        <div class="wave-window">${w === "Wave 1" ? "10/19 – 11/2" : w === "Wave 2a" ? "11/9 – 11/17" : w === "Wave 2b" ? "11/9 – 11/30" : "11/24 – 12/2"}</div>
+                        <div class="wave-window">${w === "Wave 1" ? "10/19 – 11/2" : w === "Wave 2a" ? "11/9 – 11/17" : w === "Wave 2b" ? "11/9 – 11/23" : "11/24 – 12/2"}</div>
                         <div class="wave-row"><span>Set Up</span><span class="n">${d.setUp}</span></div>
                         <div class="wave-row"><span>Completed</span><span class="n">${d.completed}</span></div>
                         <div class="wave-pct">${pct}% complete</div>
