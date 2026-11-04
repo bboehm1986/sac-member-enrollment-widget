@@ -120,6 +120,14 @@
         "Wave 2b": [new Date(2026, 10, 9),  new Date(2026, 10, 23)],
         "Wave 3":  [new Date(2026, 10, 24), new Date(2026, 11, 2)],
     };
+    // Day each wave's default ran (= the day its PSP window opens; Gold's
+    // PSP_Window: Wave 1 11/3-11/5, Wave 2a 11/18-11/20). A defaulted member
+    // who completes after this day made their own election during PSP.
+    // Annual maintenance, same note as WAVE_WINDOWS; Wave 2a assumed.
+    const DEFAULT_RUN_DATES = {
+        "Wave 1":  new Date(2026, 10, 3),
+        "Wave 2a": new Date(2026, 10, 18),
+    };
     function windowFraction(now, start, end) {
         const len = Math.round((end - start) / 86400000) + 1;
         const elapsed = Math.min(len, Math.max(0, Math.floor((now - start) / 86400000) + 1));
@@ -494,6 +502,20 @@
                 }
             });
 
+            // Defaulted members who then completed on their own: a tagged
+            // member whose completion falls after the wave's default run day.
+            // Everyone else tagged stays in the wave's default bucket.
+            Object.keys(defaultedByWave).forEach((w) => { defaultedByWave[w].elected = 0; });
+            this._rowsOfKind("DailyTrend").forEach((r) => {
+                const w = this._dim(r, 2);
+                if (!defaultedByWave[w] || this._dim(r, 4) !== "Yes") return;
+                const eventDate = parseDateFlexible(this._dim(r, 1));
+                if (isNaN(eventDate.getTime()) || eventDate.getFullYear() !== CYCLE_START.getFullYear() + 1) return;
+                const activityDate = parseDateFlexible(this._dim(r, 6));
+                if (isNaN(activityDate.getTime()) || activityDate <= DEFAULT_RUN_DATES[w]) return;
+                defaultedByWave[w].elected += this._measure(r, 0);
+            });
+
             const waveSetUp = WAVES.reduce((a, w) => a + byWave[w].setUp, 0);
             return { byWave, byStatus, totalSetUp, multipleAttempts, defaultedBeforePsp, defaultedAfterPsp, defaultedByWave, untaggedSetUp: totalSetUp - waveSetUp };
         }
@@ -639,13 +661,17 @@
             root.getElementById("defaultedPanels").innerHTML = ["Wave 1", "Wave 2a"].map((w) => {
                 const d = summary.defaultedByWave[w];
                 const waveTotal = summary.byWave[w].setUp;
+                // Tagged for default (either timing) minus those who then
+                // elected during PSP = still on the default.
+                const elected = d.elected || 0;
+                const kept = Math.max(0, d.before + d.after - elected);
                 return `
                     <div class="panel">
                         <div class="section-title" style="margin-top:0;">${w}</div>
                         <div class="panel-caption" style="margin-top:-4px;">Defaulted members</div>
                         <div class="grid">
-                            ${this._tileHtml("Before PSP", d.before, "of " + waveTotal + " set up", waveTotal ? (d.before / waveTotal) * 100 : 0, "warning")}
-                            ${this._tileHtml("After PSP", d.after, "of " + waveTotal + " set up", waveTotal ? (d.after / waveTotal) * 100 : 0, "danger")}
+                            ${this._tileHtml("Elected during PSP", elected, "of " + waveTotal + " set up", waveTotal ? (elected / waveTotal) * 100 : 0, "success")}
+                            ${this._tileHtml(w + " default", kept, "of " + waveTotal + " set up", waveTotal ? (kept / waveTotal) * 100 : 0, "danger")}
                         </div>
                     </div>`;
             }).join("");
