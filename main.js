@@ -145,6 +145,14 @@
         if (isoMatch) return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
         return new Date(str);
     }
+    // Gold's Data_Refreshed_At is the UTC time of its last persistence run,
+    // written as "YYYY-MM-DD HH:MM:SS". Parse it explicitly as UTC (the
+    // viewer's clock then shows it in local time). Invalid Date if absent.
+    function parseUtcStamp(str) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(str || "");
+        if (!m) return new Date(NaN);
+        return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])));
+    }
     function dayKey(d) {
         return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     }
@@ -467,6 +475,19 @@
             return rows.filter((r) => this._dim(r, 0) === kind && this._dim(r, 8) !== "Yes" && !/^Group /.test(this._dim(r, 2)));
         }
 
+        // Newest Data_Refreshed_At (dimensions_9, optional last dimension)
+        // across every row; the value is the same on all rows. Invalid Date
+        // while the model does not carry it yet.
+        _dataRefreshedAt() {
+            const rows = (this._aggregateData && this._aggregateData.data) || [];
+            let best = new Date(NaN);
+            rows.forEach((r) => {
+                const d = parseUtcStamp(this._dim(r, 9));
+                if (!isNaN(d.getTime()) && (isNaN(best.getTime()) || d > best)) best = d;
+            });
+            return best;
+        }
+
         _parseSummary() {
             const rows = this._rowsOfKind("StatusByWave");
             const byWave = {};
@@ -624,7 +645,13 @@
             // Computed from the viewer's clock, not the (unreliable) bound
             // asOfLabel property — see sac-ae-operational-widget's own fix
             // for the same bug, applied here from the start.
-            root.getElementById("asof").textContent = "As of: " + new Date().toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+            // Prefer the data's own refresh time (Gold persistence run); fall
+            // back to the page-load time until the model carries it.
+            const stampFmt = { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" };
+            const refreshedAt = this._dataRefreshedAt();
+            root.getElementById("asof").textContent = isNaN(refreshedAt.getTime())
+                ? "As of: " + new Date().toLocaleString("en-US", stampFmt)
+                : "Data as of: " + refreshedAt.toLocaleString("en-US", stampFmt);
             root.getElementById("dataBadge").textContent = this._usingMockData ? "Mock Data — Preview" : "Live";
 
             // Wave breakdown cards
@@ -660,18 +687,19 @@
             // waves with a PSP step (2b/3 have no Before/After PSP split).
             root.getElementById("defaultedPanels").innerHTML = ["Wave 1", "Wave 2a"].map((w) => {
                 const d = summary.defaultedByWave[w];
-                const waveTotal = summary.byWave[w].setUp;
                 // Tagged for default (either timing) minus those who then
-                // elected during PSP = still on the default.
+                // elected during PSP = still on the default. Both tiles are a
+                // share of everyone defaulted in the wave, not of the wave.
+                const defaultedTotal = d.before + d.after;
                 const elected = d.elected || 0;
-                const kept = Math.max(0, d.before + d.after - elected);
+                const kept = Math.max(0, defaultedTotal - elected);
                 return `
                     <div class="panel">
                         <div class="section-title" style="margin-top:0;">${w}</div>
                         <div class="panel-caption" style="margin-top:-4px;">Defaulted members</div>
                         <div class="grid">
-                            ${this._tileHtml("Elected during PSP", elected, "of " + waveTotal + " set up", waveTotal ? (elected / waveTotal) * 100 : 0, "success")}
-                            ${this._tileHtml(w + " default", kept, "of " + waveTotal + " set up", waveTotal ? (kept / waveTotal) * 100 : 0, "danger")}
+                            ${this._tileHtml("Elected during PSP", elected, "of " + defaultedTotal + " defaulted", defaultedTotal ? (elected / defaultedTotal) * 100 : 0, "success")}
+                            ${this._tileHtml(w + " default", kept, "of " + defaultedTotal + " defaulted", defaultedTotal ? (kept / defaultedTotal) * 100 : 0, "danger")}
                         </div>
                     </div>`;
             }).join("");
