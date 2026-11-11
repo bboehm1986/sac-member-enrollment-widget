@@ -95,7 +95,16 @@
 (function () {
     "use strict";
 
-    const WAVES = ["Wave 1", "Wave 2a", "Wave 2b", "Wave 3"];
+    // Wave 2c (added 2026-11-11, Patrick): members that should have been in
+    // Wave 2a, opened 11/11 with their own PSP. Tracked, processed and
+    // defaulted as its own wave; for pace/last-year comparison it is treated
+    // as part of Wave 2a (Patrick: "lump it in with wave 2a").
+    const WAVES = ["Wave 1", "Wave 2a", "Wave 2b", "Wave 2c", "Wave 3"];
+    const WAVE_LABELS = {
+        "Wave 1": "10/19 – 11/2", "Wave 2a": "11/9 – 11/17", "Wave 2b": "11/9 – 11/23",
+        "Wave 2c": "11/11 – 11/19", "Wave 3": "11/24 – 12/2",
+    };
+    const PSP_WAVES = ["Wave 1", "Wave 2a", "Wave 2c"];
     const STATUSES = ["Success", "Abandoned", "Not Started", "In Progress", "Needs Follow-up"];
 
     // Fixed Timeline window, per Blair (2026-09-30) — mirrors the Employer
@@ -118,6 +127,7 @@
         "Wave 1":  [new Date(2026, 9, 19),  new Date(2026, 10, 2)],
         "Wave 2a": [new Date(2026, 10, 9),  new Date(2026, 10, 17)],
         "Wave 2b": [new Date(2026, 10, 9),  new Date(2026, 10, 23)],
+        "Wave 2c": [new Date(2026, 10, 11), new Date(2026, 10, 19)],
         "Wave 3":  [new Date(2026, 10, 24), new Date(2026, 11, 2)],
     };
     // Day each wave's default ran (= the day its PSP window opens; Gold's
@@ -127,6 +137,7 @@
     const DEFAULT_RUN_DATES = {
         "Wave 1":  new Date(2026, 10, 3),
         "Wave 2a": new Date(2026, 10, 18),
+        "Wave 2c": new Date(2026, 10, 20),
     };
     function windowFraction(now, start, end) {
         const len = Math.round((end - start) / 86400000) + 1;
@@ -218,6 +229,10 @@
         rowStatusByWave("Wave 2b", "In Progress", "No", "N/A", 11, 2),
         rowStatusByWave("Wave 2b", "Not Started", "Yes", "N/A", 31, 0),
         rowStatusByWave("Wave 2b", "Needs Follow-up", "No", "N/A", 13, 5),
+        // Wave 2c (late-identified Wave 2a members) — PSP applies
+        rowStatusByWave("Wave 2c", "Success", "No", "N/A", 40, 4),
+        rowStatusByWave("Wave 2c", "Not Started", "Yes", "Before PSP", 60, 0),
+        rowStatusByWave("Wave 2c", "Not Started", "No", "N/A", 13, 0),
         // Wave 3 (small population, if needed) — no PSP
         rowStatusByWave("Wave 3", "Success", "No", "N/A", 42, 6),
         rowStatusByWave("Wave 3", "Abandoned", "No", "N/A", 2, 1),
@@ -346,7 +361,7 @@
             .tile.info .value { color: var(--info); } .tile.info .bar-fill { background: var(--info); }
             .tile.danger .value { color: var(--danger); } .tile.danger .bar-fill { background: var(--danger); }
 
-            .wave-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+            .wave-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
             .wave-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; box-shadow: var(--shadow-card); }
             .wave-card .wave-name { font-size: 12.5px; font-weight: 700; color: var(--text); }
             .wave-card .wave-window { font-size: 10.5px; color: var(--text-soft); margin-bottom: 8px; }
@@ -497,7 +512,8 @@
             // Only Wave 1 / Wave 2a ever have a PSP step (see GOLD_VIEW_SPEC.md
             // §5) — Defaulted_Timing is only ever "Before PSP"/"After PSP" for
             // these two waves, "N/A" for 2b/3.
-            const defaultedByWave = { "Wave 1": { before: 0, after: 0 }, "Wave 2a": { before: 0, after: 0 } };
+            const defaultedByWave = {};
+            PSP_WAVES.forEach((w) => { defaultedByWave[w] = { before: 0, after: 0 }; });
             let totalSetUp = 0, multipleAttempts = 0;
             let defaultedBeforePsp = 0, defaultedAfterPsp = 0;
 
@@ -661,7 +677,7 @@
                 return `
                     <div class="wave-card">
                         <div class="wave-name">${w}</div>
-                        <div class="wave-window">${w === "Wave 1" ? "10/19 – 11/2" : w === "Wave 2a" ? "11/9 – 11/17" : w === "Wave 2b" ? "11/9 – 11/23" : "11/24 – 12/2"}</div>
+                        <div class="wave-window">${WAVE_LABELS[w]}</div>
                         <div class="wave-row"><span>Set Up</span><span class="n">${d.setUp}</span></div>
                         <div class="wave-row"><span>Completed</span><span class="n">${d.completed}</span></div>
                         <div class="wave-pct">${pct}% complete</div>
@@ -683,9 +699,9 @@
                 this._tileHtml("Multiple Attempts", summary.multipleAttempts, "members, 2+ attempts", summary.totalSetUp ? (summary.multipleAttempts / summary.totalSetUp) * 100 : 0, "info"),
             ].join("");
 
-            // Defaulted panels, broken out by Wave 1 / Wave 2a — the only two
-            // waves with a PSP step (2b/3 have no Before/After PSP split).
-            root.getElementById("defaultedPanels").innerHTML = ["Wave 1", "Wave 2a"].map((w) => {
+            // Defaulted panels, broken out by Wave 1 / 2a / 2c — the waves
+            // with a PSP step (2b/3 have no Before/After PSP split).
+            root.getElementById("defaultedPanels").innerHTML = PSP_WAVES.map((w) => {
                 const d = summary.defaultedByWave[w];
                 // Tagged for default (either timing) minus those who then
                 // elected during PSP = still on the default. Both tiles are a
