@@ -139,6 +139,15 @@
         "Wave 2a": new Date(2026, 10, 18),
         "Wave 2c": new Date(2026, 10, 20),
     };
+    // Last day of each wave's PSP window (Gold's PSP_Window). A completion
+    // AFTER this day is the post-PSP default run (the "After PSP" defaults), not
+    // a member's own election, so it never counts as "Elected during PSP".
+    // Annual maintenance, same note as WAVE_WINDOWS.
+    const PSP_END_DATES = {
+        "Wave 1":  new Date(2026, 10, 5),
+        "Wave 2a": new Date(2026, 10, 20),
+        "Wave 2c": new Date(2026, 10, 23),
+    };
     function windowFraction(now, start, end) {
         const len = Math.round((end - start) / 86400000) + 1;
         const elapsed = Math.min(len, Math.max(0, Math.floor((now - start) / 86400000) + 1));
@@ -540,8 +549,11 @@
             });
 
             // Defaulted members who then completed on their own: a tagged
-            // member whose completion falls after the wave's default run day.
-            // Everyone else tagged stays in the wave's default bucket.
+            // member whose completion falls after the wave's default run day
+            // and on or before the last day of its PSP window. A completion
+            // after PSP ends is the post-PSP default run (the "After PSP"
+            // batch), not an election. Everyone else tagged stays in the
+            // wave's default bucket.
             Object.keys(defaultedByWave).forEach((w) => { defaultedByWave[w].elected = 0; });
             this._rowsOfKind("DailyTrend").forEach((r) => {
                 const w = this._dim(r, 2);
@@ -549,7 +561,7 @@
                 const eventDate = parseDateFlexible(this._dim(r, 1));
                 if (isNaN(eventDate.getTime()) || eventDate.getFullYear() !== CYCLE_START.getFullYear() + 1) return;
                 const activityDate = parseDateFlexible(this._dim(r, 6));
-                if (isNaN(activityDate.getTime()) || activityDate <= DEFAULT_RUN_DATES[w]) return;
+                if (isNaN(activityDate.getTime()) || activityDate <= DEFAULT_RUN_DATES[w] || activityDate > PSP_END_DATES[w]) return;
                 defaultedByWave[w].elected += this._measure(r, 0);
             });
 
@@ -636,6 +648,23 @@
             return { notOpen: false, targetPct, dayIndex, expectedPct, actualPct, deltaPts: Math.round(delta * 10) / 10, deltaCount, status, statusLabel };
         }
 
+        // Percent for display. Whole number normally, but never rounds up to
+        // "100" unless n >= d (99.5% must not read as 100%), and one decimal
+        // (truncated) in the 99-100 band and under 1% so small remainders show.
+        _pctText(n, d) {
+            if (!d) return "0";
+            const p = (n / d) * 100;
+            if (p >= 100) return "100";
+            if ((p > 99 && p < 100) || (p > 0 && p < 1)) return (Math.floor(p * 10) / 10).toFixed(1);
+            return String(Math.round(p));
+        }
+
+        // One-decimal percent for display; shows "100.0" only when p >= 100.
+        _pct1(p) {
+            const r = Math.round(p * 10) / 10;
+            return (r >= 100 && p < 100 ? 99.9 : r).toFixed(1);
+        }
+
         // Compact axis label ("Oct 19") from a Date object.
         _shortDateLabel(dateObj) {
             return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -673,7 +702,7 @@
             // Wave breakdown cards
             root.getElementById("waveGrid").innerHTML = WAVES.map((w) => {
                 const d = summary.byWave[w];
-                const pct = d.setUp ? Math.round((d.completed / d.setUp) * 100) : 0;
+                const pct = this._pctText(d.completed, d.setUp);
                 return `
                     <div class="wave-card">
                         <div class="wave-name">${w}</div>
@@ -693,9 +722,9 @@
             const notStartedPct = summary.totalSetUp ? Math.round((summary.byStatus["Not Started"] / summary.totalSetUp) * 100) : 0;
             root.getElementById("statusTiles").innerHTML = [
                 this._tileHtml("Total Set Up", summary.totalSetUp, "all waves", 100, "accent"),
-                this._tileHtml("Completed", summary.byStatus["Success"], completedPct + "% of total", completedPct, "success"),
-                this._tileHtml("Started, Not Completed", summary.byStatus["Abandoned"], startedNotCompletedPct + "% of total", startedNotCompletedPct, "danger"),
-                this._tileHtml("Not Started", summary.byStatus["Not Started"], notStartedPct + "% of total", notStartedPct, "warning"),
+                this._tileHtml("Completed", summary.byStatus["Success"], this._pctText(summary.byStatus["Success"], summary.totalSetUp) + "% of total", completedPct, "success"),
+                this._tileHtml("Started, Not Completed", summary.byStatus["Abandoned"], this._pctText(summary.byStatus["Abandoned"], summary.totalSetUp) + "% of total", startedNotCompletedPct, "danger"),
+                this._tileHtml("Not Started", summary.byStatus["Not Started"], this._pctText(summary.byStatus["Not Started"], summary.totalSetUp) + "% of total", notStartedPct, "warning"),
                 this._tileHtml("Multiple Attempts", summary.multipleAttempts, "members, 2+ attempts", summary.totalSetUp ? (summary.multipleAttempts / summary.totalSetUp) * 100 : 0, "info"),
             ].join("");
 
@@ -736,7 +765,7 @@
             // % Completed uses the same Success count as the Completed tile and
             // the pace calculation (and the thermometer), so the three always
             // agree; the daily series above only supplies the running count.
-            const pctOfSetUp = summary.totalSetUp ? Math.round((summary.byStatus["Success"] / summary.totalSetUp) * 100) : 0;
+            const pctOfSetUp = this._pctText(summary.byStatus["Success"], summary.totalSetUp);
 
             // Same layout as the Employer tracker (Patrick/Paul, 2026-10-16):
             // completed count, % completed, and a vs.-expected-pace delta in
@@ -751,7 +780,7 @@
                     <div>
                         <div class="cum-stat-value ${pace.status}">${sign}${pace.deltaPts.toFixed(1)} pts <span class="cum-stat-count">(${countSign}${pace.deltaCount.toLocaleString()})</span></div>
                         <div class="cum-stat-label">vs. Expected Pace (Day ${pace.dayIndex})</div>
-                        <div class="cum-stat-sub">${pace.actualPct.toFixed(1)}% actual vs. ${pace.expectedPct.toFixed(1)}% expected</div>
+                        <div class="cum-stat-sub">${this._pct1(pace.actualPct)}% actual vs. ${this._pct1(pace.expectedPct)}% expected</div>
                     </div>`;
             }
             const lastDay = CYCLE_END.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -765,7 +794,7 @@
                     <div><div class="cum-stat-value">${totalCompleted.toLocaleString()}</div><div class="cum-stat-label">Cumulative Completed</div></div>
                     <div><div class="cum-stat-value">${pctOfSetUp}%</div><div class="cum-stat-label">% Completed</div></div>
                     ${vsExpectedHtml}
-                    <div><div class="cum-stat-value">${pace.targetPct.toFixed(1)}%</div><div class="cum-stat-label">Last-Day Target (${lastDay})</div></div>
+                    <div><div class="cum-stat-value">${this._pct1(pace.targetPct)}%</div><div class="cum-stat-label">Last-Day Target (${lastDay})</div></div>
                 </div>
                 <div class="chart-legend">
                     <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--success);"></span>This Cycle</div>
